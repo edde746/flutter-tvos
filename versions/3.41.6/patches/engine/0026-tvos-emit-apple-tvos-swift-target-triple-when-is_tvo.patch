@@ -1,0 +1,37 @@
+From fe4c2ea2383602b54e03b3a8cdd22ab91f7c31d6 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 23:02:05 +0200
+Subject: [PATCH 26/32] tvos: emit apple-tvos swift target triple when is_tvos
+
+
+diff --git a/engine/src/build/config/darwin/BUILD.gn b/engine/src/build/config/darwin/BUILD.gn
+index 61c58c70c57..823d7550264 100644
+--- a/engine/src/build/config/darwin/BUILD.gn
++++ b/engine/src/build/config/darwin/BUILD.gn
+@@ -34,7 +34,10 @@ config("compiler") {
+   }
+ 
+   # OS and deployment target.
+-  if (is_ios) {
++  if (is_ios && is_tvos) {
++    _triplet_os = "apple-tvos"
++    _deployment_target = tvos_deployment_target
++  } else if (is_ios) {
+     _triplet_os = "apple-ios"
+     _deployment_target = ios_deployment_target
+   } else if (is_mac) {
+@@ -43,7 +46,13 @@ config("compiler") {
+   }
+ 
+   # Environment.
+-  if (use_ios_simulator) {
++  if (is_tvos) {
++    if (use_tvos_simulator) {
++      _triplet_environment = "-simulator"
++    } else {
++      _triplet_environment = ""
++    }
++  } else if (use_ios_simulator) {
+     _triplet_environment = "-simulator"
+   } else {
+     _triplet_environment = ""

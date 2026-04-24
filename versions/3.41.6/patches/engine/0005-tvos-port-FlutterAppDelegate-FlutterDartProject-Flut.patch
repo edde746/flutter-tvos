@@ -1,0 +1,319 @@
+From 55d20fa85f463dcadede59101541ef76e80a0019 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:39:18 +0200
+Subject: [PATCH 05/32] tvos: port FlutterAppDelegate, FlutterDartProject,
+ FlutterPlatformPlugin
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm
+index 03bf0b3db1d..8a4f6da1d76 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm
+@@ -88,6 +88,7 @@ - (void)applicationDidBecomeActive:(UIApplication*)application {
+ - (void)applicationWillTerminate:(UIApplication*)application {
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+ - (void)application:(UIApplication*)application
+@@ -96,6 +97,7 @@ - (void)application:(UIApplication*)application
+       didRegisterUserNotificationSettings:notificationSettings];
+ }
+ #pragma GCC diagnostic pop
++#endif
+ 
+ - (void)application:(UIApplication*)application
+     didRegisterForRemoteNotificationsWithDeviceToken:(NSData*)deviceToken {
+@@ -109,6 +111,7 @@ - (void)application:(UIApplication*)application
+       didFailToRegisterForRemoteNotificationsWithError:error];
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+ - (void)application:(UIApplication*)application
+@@ -116,6 +119,7 @@ - (void)application:(UIApplication*)application
+   [self.lifeCycleDelegate application:application didReceiveLocalNotification:notification];
+ }
+ #pragma GCC diagnostic pop
++#endif
+ 
+ - (void)userNotificationCenter:(UNUserNotificationCenter*)center
+        willPresentNotification:(UNNotification*)notification
+@@ -131,6 +135,7 @@ - (void)userNotificationCenter:(UNUserNotificationCenter*)center
+ /**
+  * Calls all plugins registered for `UNUserNotificationCenterDelegate` callbacks.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)userNotificationCenter:(UNUserNotificationCenter*)center
+     didReceiveNotificationResponse:(UNNotificationResponse*)response
+              withCompletionHandler:(void (^)(void))completionHandler {
+@@ -140,6 +145,7 @@ - (void)userNotificationCenter:(UNUserNotificationCenter*)center
+                              withCompletionHandler:completionHandler];
+   }
+ }
++#endif
+ 
+ // This method is called when opening an URL with custom schemes.
+ - (BOOL)application:(UIApplication*)application
+@@ -197,6 +203,7 @@ - (BOOL)application:(UIApplication*)application
+                                   annotation:annotation];
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)application:(UIApplication*)application
+     performActionForShortcutItem:(UIApplicationShortcutItem*)shortcutItem
+                completionHandler:(void (^)(BOOL succeeded))completionHandler {
+@@ -204,6 +211,7 @@ - (void)application:(UIApplication*)application
+          performActionForShortcutItem:shortcutItem
+                     completionHandler:completionHandler];
+ }
++#endif
+ 
+ - (void)application:(UIApplication*)application
+     handleEventsForBackgroundURLSession:(nonnull NSString*)identifier
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm
+index 31a49a856a4..a7fd686bca0 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm
+@@ -29,6 +29,7 @@
+ 
+ static const char* kApplicationKernelSnapshotFileName = "kernel_blob.bin";
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ static BOOL DoesHardwareSupportWideGamut() {
+   static BOOL result = NO;
+   static dispatch_once_t once_token = 0;
+@@ -38,6 +39,7 @@ static BOOL DoesHardwareSupportWideGamut() {
+   });
+   return result;
+ }
++#endif
+ 
+ flutter::Settings FLTDefaultSettingsForBundle(NSBundle* bundle, NSProcessInfo* processInfoOrNil) {
+   auto command_line = flutter::CommandLineFromNSProcessInfo(processInfoOrNil);
+@@ -163,13 +165,20 @@ static BOOL DoesHardwareSupportWideGamut() {
+   // As of Xcode 14.1, the wide gamut surface pixel formats are not supported by
+   // the simulator.
+   settings.enable_wide_gamut = false;
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   // Removes unused function warning.
+   (void)DoesHardwareSupportWideGamut;
++#endif
+ #else
+   NSNumber* nsEnableWideGamut = [mainBundle objectForInfoDictionaryKey:@"FLTEnableWideGamut"];
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   BOOL enableWideGamut =
+       (nsEnableWideGamut ? nsEnableWideGamut.boolValue : YES) && DoesHardwareSupportWideGamut();
+   settings.enable_wide_gamut = enableWideGamut;
++#else
++  BOOL enableWideGamut = nsEnableWideGamut ? nsEnableWideGamut.boolValue : YES;
++  settings.enable_wide_gamut = enableWideGamut;
++#endif
+ #endif
+ 
+   NSNumber* nsAntialiasLines = [mainBundle objectForInfoDictionaryKey:@"FLTAntialiasLines"];
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm
+index 808d87a31a3..38790497a1e 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm
+@@ -21,13 +21,17 @@
+ 
+ namespace {
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ constexpr char kTextPlainFormat[] = "text/plain";
++#endif
+ // Some of the official iOS system sounds. A full list can be found in many places online, such as:
+ // https://github.com/p-x9/swift-system-sound/blob/cb4327b223d55d01e9156539c8442db16f4b1f85/SystemSoundTable.md
+ const UInt32 kKeyPressClickSoundId = 1306;
+ const UInt32 kWheelsOfTimeSoundId = 1157;
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ NSString* const kSearchURLPrefix = @"x-web-search://?";
++#endif
+ 
+ }  // namespace
+ 
+@@ -47,6 +51,7 @@
+ 
+ using namespace flutter;
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ static void SetStatusBarHiddenForSharedApplication(BOOL hidden) {
+   UIApplication* flutterApplication = FlutterSharedApplication.application;
+   if (flutterApplication) {
+@@ -68,6 +73,7 @@ static void SetStatusBarStyleForSharedApplication(UIStatusBarStyle style) {
+                                "extension."];
+   }
+ }
++#endif
+ 
+ @interface FlutterPlatformPlugin ()
+ 
+@@ -150,7 +156,9 @@ - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
+     result([self clipboardHasStrings]);
+   } else if ([method isEqualToString:@"LiveText.isLiveTextInputAvailable"]) {
+     result(@([self isLiveTextInputAvailable]));
+-  } else if ([method isEqualToString:@"SearchWeb.invoke"]) {
++  }
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++  else if ([method isEqualToString:@"SearchWeb.invoke"]) {
+     [self searchWeb:args];
+     result(nil);
+   } else if ([method isEqualToString:@"LookUp.invoke"]) {
+@@ -165,7 +173,9 @@ - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
+   } else if ([method isEqualToString:@"ContextMenu.hideSystemContextMenu"]) {
+     [self hideSystemContextMenu];
+     result(nil);
+-  } else {
++  }
++#endif
++  else {
+     result(FlutterMethodNotImplemented);
+   }
+ }
+@@ -189,6 +199,7 @@ - (void)hideSystemContextMenu {
+   }
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)showShareViewController:(NSString*)content {
+   UIViewController* engineViewController = [self.engine viewController];
+ 
+@@ -240,6 +251,7 @@ - (void)searchWeb:(NSString*)searchTerm {
+ 
+   [flutterApplication openURL:[NSURL URLWithString:searchURL] options:@{} completionHandler:nil];
+ }
++#endif
+ 
+ - (void)playSystemSound:(NSString*)soundType {
+   if ([soundType isEqualToString:@"SystemSoundType.click"]) {
+@@ -257,6 +269,7 @@ - (void)vibrateHapticFeedback:(NSString*)feedbackType {
+     return;
+   }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if ([@"HapticFeedbackType.lightImpact" isEqualToString:feedbackType]) {
+     [[[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight] impactOccurred];
+   } else if ([@"HapticFeedbackType.mediumImpact" isEqualToString:feedbackType]) {
+@@ -275,11 +288,13 @@ - (void)vibrateHapticFeedback:(NSString*)feedbackType {
+     [[[UINotificationFeedbackGenerator alloc] init]
+         notificationOccurred:UINotificationFeedbackTypeError];
+   }
++#endif
+ }
+ 
+ - (void)setSystemChromePreferredOrientations:(NSArray*)orientations {
+   UIInterfaceOrientationMask mask = 0;
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (orientations.count == 0) {
+     mask |= UIInterfaceOrientationMaskAll;
+   } else {
+@@ -295,6 +310,7 @@ - (void)setSystemChromePreferredOrientations:(NSArray*)orientations {
+       }
+     }
+   }
++#endif
+ 
+   if (!mask) {
+     return;
+@@ -310,6 +326,7 @@ - (void)setSystemChromeApplicationSwitcherDescription:(NSDictionary*)object {
+ }
+ 
+ - (void)setSystemChromeEnabledSystemUIOverlays:(NSArray*)overlays {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   BOOL statusBarShouldBeHidden = ![overlays containsObject:@"SystemUiOverlay.top"];
+   if ([overlays containsObject:@"SystemUiOverlay.bottom"]) {
+     [[NSNotificationCenter defaultCenter]
+@@ -331,10 +348,12 @@ - (void)setSystemChromeEnabledSystemUIOverlays:(NSArray*)overlays {
+     // UIViewControllerBasedStatusBarAppearance.
+     SetStatusBarHiddenForSharedApplication(statusBarShouldBeHidden);
+   }
++#endif
+ }
+ 
+ - (void)setSystemChromeEnabledSystemUIMode:(NSString*)mode {
+   BOOL edgeToEdge = [mode isEqualToString:@"SystemUiMode.edgeToEdge"];
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (self.enableViewControllerBasedStatusBarAppearance) {
+     [self.engine viewController].prefersStatusBarHidden = !edgeToEdge;
+   } else {
+@@ -346,6 +365,7 @@ - (void)setSystemChromeEnabledSystemUIMode:(NSString*)mode {
+     // UIViewControllerBasedStatusBarAppearance.
+     SetStatusBarHiddenForSharedApplication(!edgeToEdge);
+   }
++#endif
+   [[NSNotificationCenter defaultCenter]
+       postNotificationName:edgeToEdge ? FlutterViewControllerShowHomeIndicator
+                                       : FlutterViewControllerHideHomeIndicator
+@@ -362,6 +382,7 @@ - (void)setSystemChromeSystemUIOverlayStyle:(NSDictionary*)message {
+     return;
+   }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   UIStatusBarStyle statusBarStyle;
+   if ([brightness isEqualToString:@"Brightness.dark"]) {
+     statusBarStyle = UIStatusBarStyleLightContent;
+@@ -380,6 +401,7 @@ - (void)setSystemChromeSystemUIOverlayStyle:(NSDictionary*)message {
+   } else {
+     SetStatusBarStyleForSharedApplication(statusBarStyle);
+   }
++#endif
+ }
+ 
+ - (void)popSystemNavigator:(BOOL)isAnimated {
+@@ -415,16 +437,19 @@ - (void)popSystemNavigator:(BOOL)isAnimated {
+ }
+ 
+ - (NSDictionary*)getClipboardData:(NSString*)format {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   UIPasteboard* pasteboard = [UIPasteboard generalPasteboard];
+   if (!format || [format isEqualToString:@(kTextPlainFormat)]) {
+     NSString* stringInPasteboard = pasteboard.string;
+     // The pasteboard may contain an item but it may not be a string (an image for instance).
+     return stringInPasteboard == nil ? nil : @{@"text" : stringInPasteboard};
+   }
++#endif
+   return nil;
+ }
+ 
+ - (void)setClipboardData:(NSDictionary*)data {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   UIPasteboard* pasteboard = [UIPasteboard generalPasteboard];
+   id copyText = data[@"text"];
+   if ([copyText isKindOfClass:[NSString class]]) {
+@@ -432,16 +457,22 @@ - (void)setClipboardData:(NSDictionary*)data {
+   } else {
+     pasteboard.string = @"null";
+   }
++#endif
+ }
+ 
+ - (NSDictionary*)clipboardHasStrings {
+-  return @{@"value" : @([UIPasteboard generalPasteboard].hasStrings)};
++  bool hasStrings = false;
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++  hasStrings = [UIPasteboard generalPasteboard].hasStrings;
++#endif
++  return @{@"value" : @(hasStrings)};
+ }
+ 
+ - (BOOL)isLiveTextInputAvailable {
+   return [[self textField] canPerformAction:@selector(captureTextFromCamera:) withSender:nil];
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)showLookUpViewController:(NSString*)term {
+   UIViewController* engineViewController = [self.engine viewController];
+   UIReferenceLibraryViewController* referenceLibraryViewController =
+@@ -450,6 +481,7 @@ - (void)showLookUpViewController:(NSString*)term {
+                                      animated:YES
+                                    completion:nil];
+ }
++#endif
+ 
+ - (UITextField*)textField {
+   if (_textField == nil) {

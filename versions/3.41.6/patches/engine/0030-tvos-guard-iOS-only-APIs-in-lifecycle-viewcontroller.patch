@@ -1,0 +1,130 @@
+From 14bbda2e3ff99c439914af846ef06c01eae34c70 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 23:15:02 +0200
+Subject: [PATCH 30/32] tvos: guard iOS-only APIs in
+ lifecycle/viewcontroller/bridge
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h
+index f8f40edabd8..16bafbe5eae 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h
+@@ -14,9 +14,11 @@
+ - (instancetype)initWithEngine:(FlutterEngine*)engine NS_DESIGNATED_INITIALIZER;
+ - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result;
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)showShareViewController:(NSString*)content;
+ - (void)searchWeb:(NSString*)searchTerm;
+ - (void)showLookUpViewController:(NSString*)term;
++#endif
+ @end
+ 
+ namespace flutter {
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
+index ef058661cec..1d1ce7afc7e 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
+@@ -205,9 +205,11 @@ - (BOOL)application:(UIApplication*)application
+   NSMutableDictionary<UIApplicationLaunchOptionsKey, id>* convertedOptions =
+       [NSMutableDictionary dictionary];
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (connectionOptions.shortcutItem) {
+     convertedOptions[UIApplicationLaunchOptionsShortcutItemKey] = connectionOptions.shortcutItem;
+   }
++#endif
+   if (connectionOptions.sourceApplication) {
+     convertedOptions[UIApplicationLaunchOptionsSourceApplicationKey] =
+         connectionOptions.sourceApplication;
+@@ -544,11 +546,13 @@ - (BOOL)application:(UIApplication*)application
+     convertedOptions[UIApplicationOpenURLOptionsAnnotationKey] = options.annotation;
+   }
+   convertedOptions[UIApplicationOpenURLOptionsOpenInPlaceKey] = @(options.openInPlace);
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (@available(iOS 14.5, *)) {
+     if (options.eventAttribution) {
+       convertedOptions[UIApplicationOpenURLOptionsEventAttributionKey] = options.eventAttribution;
+     }
+   }
++#endif
+   return convertedOptions;
+ }
+ 
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index dd62839120c..3c1482d5f29 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -90,7 +90,9 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ @property(nonatomic, strong) void (^flutterViewRenderedCallback)(void);
+ 
+ @property(nonatomic, assign) UIInterfaceOrientationMask orientationPreferences;
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ @property(nonatomic, assign) UIStatusBarStyle statusBarStyle;
++#endif
+ @property(nonatomic, assign) BOOL initialized;
+ @property(nonatomic, assign) BOOL engineNeedsLaunch;
+ @property(nonatomic, assign) BOOL awokenFromNib;
+@@ -180,8 +182,10 @@ - (void)deregisterNotifications;
+ /// Called when the first frame has been rendered. Invokes any registered first-frame callback.
+ - (void)onFirstFrameRendered;
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ /// Handles updating viewport metrics on keyboard animation.
+ - (void)handleKeyboardAnimationCallbackWithTargetTime:(fml::TimePoint)targetTime;
++#endif
+ @end
+ 
+ @implementation FlutterViewController {
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
+index bc47d4aba61..dd394e1134b 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
+@@ -50,6 +50,7 @@ typedef void (^FlutterKeyboardAnimationCallback)(fml::TimePoint);
+ @property(nonatomic, strong) FlutterKeyboardManager* keyboardManager;
+ @property(nonatomic, readwrite) NSString* applicationLocale;
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ /**
+  * @brief Whether the status bar is preferred hidden.
+  *
+@@ -58,6 +59,7 @@ typedef void (^FlutterKeyboardAnimationCallback)(fml::TimePoint);
+  *        of the app project is `false`.
+  */
+ @property(nonatomic, assign, readwrite) BOOL prefersStatusBarHidden;
++#endif
+ 
+ @property(nonatomic, readonly) FlutterPlatformViewsController* platformViewsController;
+ 
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
+index 5f0955e0cba..c782f050b69 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
+@@ -101,7 +101,8 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+   // Reset stale focus before processing the update.
+   if (last_focused_semantics_object_id_ != kSemanticObjectIdInvalid) {
+     SemanticsObject* object = objects_[@(last_focused_semantics_object_id_)];
+-    if (!object || !object.node.HasFlag(flutter::SemanticsFlags::kIsFocused)) {
++    if (!object ||
++        object.node.flags.isFocused != flutter::SemanticsTristate::kTrue) {
+       last_focused_semantics_object_id_ = kSemanticObjectIdInvalid;
+     }
+   }
+@@ -117,7 +118,7 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+     // Store focus uid, this could be changed in this update.
+-    if (node.HasFlag(flutter::SemanticsFlags::kIsFocused) &&
++    if (node.flags.isFocused == flutter::SemanticsTristate::kTrue &&
+         (object.accessibilityLabel != nil && object.accessibilityLabel.length > 0)) {
+       last_focused_semantics_object_id_ = node.id;
+     }
+@@ -263,7 +264,7 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+           (routeChanged || next != lastFocused) ? next.nativeAccessibility : NULL);
+ #else
+       FlutterAccessibilitySelectionView* selectionOverlay =
+-          (FlutterAccessibilitySelectionView*)[view_controller_ getAccessibilitySelectionVliew];
++          (FlutterAccessibilitySelectionView*)[view_controller_ getAccessibilitySelectionView];
+       if (selectionOverlay) {
+         // For tvOS there is only one focusable accessibility element (which will be re-used)
+         if (!view_controller_.view.accessibilityElements) {

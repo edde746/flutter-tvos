@@ -1,0 +1,20 @@
+# Fetched upstream sources + build output.
+# `scripts/fetch-sources.sh` writes here; never commit it.
+/sources/
+/out/
+/build/
+/depot_tools/
+
+# Legacy LibertyGlobal 3.27.4 checkout (pre-existing at this path).
+# Kept on disk as a reference — not part of the repo.
+/engine/
+
+# Editor + OS cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Python + shell junk
+__pycache__/
+*.pyc

@@ -1,0 +1,71 @@
+From f56363216a8dc632cdd7bc4a15c2d5986af59c70 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 24 Apr 2026 10:30:45 +0200
+Subject: [PATCH 32/32] tvos: route siri remote presses through hardware
+ keyboard
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 3c1482d5f29..8e5dec8270a 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -891,10 +891,15 @@ - (void)handleRightTap:(UITapGestureRecognizer*)recognizer {
+   [self handleTap:recognizer withType:@"macos" keyType:0x7C];
+ }
+ - (void)handleCenterTap:(UITapGestureRecognizer*)recognizer {
+-  // only send once
++  // Send a DPAD_CENTER key event so Flutter's focus/Shortcuts systems can
++  // activate the focused widget, in addition to the LibertyGlobal-style
++  // gamepad-touch broadcast that a custom app can still listen for.
++  // Android KEYCODE_DPAD_CENTER = 23 (0x17) → Flutter's LogicalKeyboardKey.select.
+   if (recognizer.state == UIGestureRecognizerStateBegan) {
++    [self sendTap:0x17 withType:@"android" ofType:@"keydown"];
+     [self sendGamepadTouchesWithType:@"click_s" x:0 y:0];
+   } else if (recognizer.state == UIGestureRecognizerStateEnded) {
++    [self sendTap:0x17 withType:@"android" ofType:@"keyup"];
+     [self sendGamepadTouchesWithType:@"click_e" x:0 y:0];
+   }
+ }
+@@ -2328,8 +2333,12 @@ - (void)superPressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEven
+ // the similar ones in FlutterTextInputPlugin. They need to be overridden in
+ // both places to capture keys both inside and outside of a text field, but have
+ // slightly different implementations.
++//
++// Note: on tvOS, routing Siri Remote presses through handlePressEvent is what
++// enables HardwareKeyboard.instance (the modern key path used by Focus and
++// Shortcuts) to receive Select/arrow/etc. The UIPressGestureRecognizer-based
++// legacy keyEventChannel tap path still fires in parallel; that's harmless.
+ 
+-#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+@@ -2389,28 +2398,6 @@ - (void)pressesCancelled:(NSSet<UIPress*>*)presses
+     [super pressesCancelled:presses withEvent:event];
+   }
+ }
+-#else  // TARGET_OS_TV
+-
+-- (void)pressesBegan:(NSSet<UIPress*>*)presses
+-           withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+-  [super pressesBegan:presses withEvent:event];
+-}
+-
+-- (void)pressesChanged:(NSSet<UIPress*>*)presses
+-             withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+-  [super pressesChanged:presses withEvent:event];
+-}
+-
+-- (void)pressesEnded:(NSSet<UIPress*>*)presses
+-           withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+-  [super pressesEnded:presses withEvent:event];
+-}
+-
+-- (void)pressesCancelled:(NSSet<UIPress*>*)presses
+-               withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+-  [super pressesCancelled:presses withEvent:event];
+-}
+-#endif  // TARGET_OS_TV
+ 
+ #pragma mark - Orientation updates
+ 

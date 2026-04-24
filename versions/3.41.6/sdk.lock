@@ -1,0 +1,22 @@
+# Pinned upstream commits for Flutter 3.41.6 + its engine dependencies.
+# Sourced by scripts/_common.sh → fetch-sources.sh / apply-patches.sh /
+# regenerate-patches.sh / build.sh.
+#
+# When bumping to a new Flutter release, update ALL four refs together and
+# keep them consistent: the engine pins the dart/skia SHAs inside its DEPS.
+
+FLUTTER_VERSION=3.41.6
+
+# The Flutter monorepo (formerly flutter/engine + flutter/flutter).
+# ENGINE_REF is the `3.41.6` tag which resolves to this commit.
+ENGINE_REPO=https://github.com/flutter/flutter.git
+ENGINE_REF=3.41.6
+ENGINE_COMMIT=db50e20168db8fee486b9abf32fc912de3bc5b6a
+
+# Dart SDK pinned at Dart 3.11.4 (tag on this commit).
+DART_REPO=https://dart.googlesource.com/sdk.git
+DART_COMMIT=02abc57898bebc334a997e609ce5827c8ef207d7
+
+# Skia pinned to the revision the engine's DEPS resolves to for 3.41.6.
+SKIA_REPO=https://skia.googlesource.com/skia.git
+SKIA_COMMIT=a183ded9ad67d998a5b0fe4cd86d3ef5402ffb45

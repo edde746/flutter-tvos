@@ -1,0 +1,341 @@
+From 1d673d84e77d6790b05d2c1401744d1a1db662cc Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:35:58 +0200
+Subject: [PATCH 04/32] tvos: port ios BUILD.gn, plugin headers, accessibility
+ view
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+index 911ee431e25..c8fedd0ecf1 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
++++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+@@ -111,6 +111,8 @@ source_set("flutter_framework_source") {
+     "framework/Source/FlutterPluginAppLifeCycleDelegate.mm",
+     "framework/Source/FlutterRestorationPlugin.h",
+     "framework/Source/FlutterRestorationPlugin.mm",
++    "framework/Source/FlutterAccessibilitySelectionView.h",
++    "framework/Source/FlutterAccessibilitySelectionView.mm",
+     "framework/Source/FlutterSceneDelegate.mm",
+     "framework/Source/FlutterSceneLifeCycle.mm",
+     "framework/Source/FlutterSceneLifeCycle_Internal.h",
+@@ -183,13 +185,17 @@ source_set("flutter_framework_source") {
+     "CoreVideo.framework",
+     "IOSurface.framework",
+     "QuartzCore.framework",
+-    "WebKit.framework",
++    # tvos: WebKit not available on tvOS; GameController + MediaPlayer needed for Siri Remote.
++    # "WebKit.framework",
+     "UIKit.framework",
++    "GameController.framework",
++    "MediaPlayer.framework",
+   ]
+   if (flutter_runtime_mode == "profile" || flutter_runtime_mode == "debug") {
+     # This is required by the profiler_metrics_ios.mm to get GPU statistics.
+     # Usage in release builds will cause rejection from the App Store.
+-    frameworks += [ "IOKit.framework" ]
++    # tvos: IOKit not available on tvOS
++    # frameworks += [ "IOKit.framework" ]
+   }
+ 
+   deps = [
+@@ -233,7 +239,8 @@ if (enable_ios_unittests) {
+     cflags_objcc = flutter_cflags_objcc
+     cflags = [
+       "-fvisibility=default",
+-      "-mios-simulator-version-min=$ios_testing_deployment_target",
++      # tvos: tests not run on tvOS; keep flag commented to preserve patch intent.
++      # "-mappletvsimulator-version-min=$ios_testing_deployment_target",
+     ]
+ 
+     ldflags =
+@@ -248,42 +255,43 @@ if (enable_ios_unittests) {
+     ]
+ 
+     sources = [
+-      "framework/Source/FlutterAppDelegateTest.mm",
+-      "framework/Source/FlutterChannelKeyResponderTest.mm",
+-      "framework/Source/FlutterDartProjectTest.mm",
+-      "framework/Source/FlutterEmbedderKeyResponderTest.mm",
+-      "framework/Source/FlutterEngineGroupTest.mm",
+-      "framework/Source/FlutterEnginePlatformViewTest.mm",
+-      "framework/Source/FlutterEngineTest.mm",
+-      "framework/Source/FlutterFakeKeyEvents.h",
+-      "framework/Source/FlutterFakeKeyEvents.mm",
+-      "framework/Source/FlutterKeyboardManagerTest.mm",
+-      "framework/Source/FlutterLaunchEngineTest.mm",
+-      "framework/Source/FlutterMetalLayerTest.mm",
+-      "framework/Source/FlutterPlatformPluginTest.mm",
+-      "framework/Source/FlutterPlatformViewsTest.mm",
+-      "framework/Source/FlutterPluginAppLifeCycleDelegateTest.mm",
+-      "framework/Source/FlutterRestorationPluginTest.mm",
+-      "framework/Source/FlutterSceneDelegateTest.m",
+-      "framework/Source/FlutterSceneLifeCycleTest.mm",
+-      "framework/Source/FlutterSharedApplicationTest.mm",
+-      "framework/Source/FlutterSpellCheckPluginTest.mm",
+-      "framework/Source/FlutterTextInputPluginTest.mm",
+-      "framework/Source/FlutterTextureRegistryRelayTest.mm",
+-      "framework/Source/FlutterTouchInterceptingView_Test.h",
+-      "framework/Source/FlutterUndoManagerPluginTest.mm",
+-      "framework/Source/FlutterViewControllerTest.mm",
+-      "framework/Source/FlutterViewTest.mm",
+-      "framework/Source/SemanticsObjectTest.mm",
+-      "framework/Source/SemanticsObjectTestMocks.h",
+-      "framework/Source/UIViewController_FlutterScreenAndSceneIfLoadedTest.mm",
+-      "framework/Source/VsyncWaiterIosTest.mm",
+-      "framework/Source/accessibility_bridge_test.mm",
+-      "framework/Source/availability_version_check_test.mm",
+-      "ios_context_noop_unittests.mm",
+-      "ios_surface_noop_unittests.mm",
+-      "platform_message_handler_ios_test.mm",
+-      "platform_view_ios_test.mm",
++      # tvos: tests disabled for tvOS port; keep commented to preserve patch intent.
++      # "framework/Source/FlutterAppDelegateTest.mm",
++      # "framework/Source/FlutterChannelKeyResponderTest.mm",
++      # "framework/Source/FlutterDartProjectTest.mm",
++      # "framework/Source/FlutterEmbedderKeyResponderTest.mm",
++      # "framework/Source/FlutterEngineGroupTest.mm",
++      # "framework/Source/FlutterEnginePlatformViewTest.mm",
++      # "framework/Source/FlutterEngineTest.mm",
++      # "framework/Source/FlutterFakeKeyEvents.h",
++      # "framework/Source/FlutterFakeKeyEvents.mm",
++      # "framework/Source/FlutterKeyboardManagerTest.mm",
++      # "framework/Source/FlutterLaunchEngineTest.mm",
++      # "framework/Source/FlutterMetalLayerTest.mm",
++      # "framework/Source/FlutterPlatformPluginTest.mm",
++      # "framework/Source/FlutterPlatformViewsTest.mm",
++      # "framework/Source/FlutterPluginAppLifeCycleDelegateTest.mm",
++      # "framework/Source/FlutterRestorationPluginTest.mm",
++      # "framework/Source/FlutterSceneDelegateTest.m",
++      # "framework/Source/FlutterSceneLifeCycleTest.mm",
++      # "framework/Source/FlutterSharedApplicationTest.mm",
++      # "framework/Source/FlutterSpellCheckPluginTest.mm",
++      # "framework/Source/FlutterTextInputPluginTest.mm",
++      # "framework/Source/FlutterTextureRegistryRelayTest.mm",
++      # "framework/Source/FlutterTouchInterceptingView_Test.h",
++      # "framework/Source/FlutterUndoManagerPluginTest.mm",
++      # "framework/Source/FlutterViewControllerTest.mm",
++      # "framework/Source/FlutterViewTest.mm",
++      # "framework/Source/SemanticsObjectTest.mm",
++      # "framework/Source/SemanticsObjectTestMocks.h",
++      # "framework/Source/UIViewController_FlutterScreenAndSceneIfLoadedTest.mm",
++      # "framework/Source/VsyncWaiterIosTest.mm",
++      # "framework/Source/accessibility_bridge_test.mm",
++      # "framework/Source/availability_version_check_test.mm",
++      # "ios_context_noop_unittests.mm",
++      # "ios_surface_noop_unittests.mm",
++      # "platform_message_handler_ios_test.mm",
++      # "platform_view_ios_test.mm",
+     ]
+     deps = [
+       ":flutter_framework",
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPlugin.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPlugin.h
+index 24e83756b31..a8e103a6d2f 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPlugin.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPlugin.h
+@@ -70,11 +70,13 @@ NS_ASSUME_NONNULL_BEGIN
+ /**
+  * Called if this has been registered for `UIApplicationDelegate` callbacks.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)application:(UIApplication*)application
+     didRegisterUserNotificationSettings:(UIUserNotificationSettings*)notificationSettings
+     API_DEPRECATED(
+         "See -[UIApplicationDelegate application:didRegisterUserNotificationSettings:] deprecation",
+         ios(8.0, 10.0));
++#endif
+ 
+ /**
+  * Called if this has been registered for `UIApplicationDelegate` callbacks.
+@@ -100,11 +102,13 @@ NS_ASSUME_NONNULL_BEGIN
+ /**
+  * Calls all plugins registered for `UIApplicationDelegate` callbacks.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)application:(UIApplication*)application
+     didReceiveLocalNotification:(UILocalNotification*)notification
+     API_DEPRECATED(
+         "See -[UIApplicationDelegate application:didReceiveLocalNotification:] deprecation",
+         ios(4.0, 10.0));
++#endif
+ 
+ /**
+  * Called if this has been registered for `UIApplicationDelegate` callbacks.
+@@ -137,10 +141,12 @@ NS_ASSUME_NONNULL_BEGIN
+  *
+  * @return `YES` if this handles the request.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (BOOL)application:(UIApplication*)application
+     performActionForShortcutItem:(UIApplicationShortcutItem*)shortcutItem
+                completionHandler:(void (^)(BOOL succeeded))completionHandler
+     API_AVAILABLE(ios(9.0));
++#endif
+ 
+ /**
+  * Called if this has been registered for `UIApplicationDelegate` callbacks.
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPluginAppLifeCycleDelegate.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPluginAppLifeCycleDelegate.h
+index 95d1e611e49..bad13d426c0 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPluginAppLifeCycleDelegate.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPluginAppLifeCycleDelegate.h
+@@ -42,11 +42,13 @@ FLUTTER_DARWIN_EXPORT
+ /**
+  * Called if this plugin has been registered for `UIApplicationDelegate` callbacks.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)application:(UIApplication*)application
+     didRegisterUserNotificationSettings:(UIUserNotificationSettings*)notificationSettings
+     API_DEPRECATED(
+         "See -[UIApplicationDelegate application:didRegisterUserNotificationSettings:] deprecation",
+         ios(8.0, 10.0));
++#endif
+ 
+ /**
+  * Calls all plugins registered for `UIApplicationDelegate` callbacks.
+@@ -70,11 +72,13 @@ FLUTTER_DARWIN_EXPORT
+ /**
+  * Calls all plugins registered for `UIApplicationDelegate` callbacks.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)application:(UIApplication*)application
+     didReceiveLocalNotification:(UILocalNotification*)notification
+     API_DEPRECATED(
+         "See -[UIApplicationDelegate application:didReceiveLocalNotification:] deprecation",
+         ios(4.0, 10.0));
++#endif
+ 
+ /**
+  * Calls all plugins registered for `UIApplicationDelegate` callbacks in order of registration until
+@@ -108,10 +112,12 @@ FLUTTER_DARWIN_EXPORT
+ /**
+  * Calls all plugins registered for `UIApplicationDelegate` callbacks.
+  */
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)application:(UIApplication*)application
+     performActionForShortcutItem:(UIApplicationShortcutItem*)shortcutItem
+                completionHandler:(void (^)(BOOL succeeded))completionHandler
+     API_AVAILABLE(ios(9.0));
++#endif
+ 
+ /**
+  * Calls all plugins registered for `UIApplicationDelegate` callbacks in order of registration until
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
+index a92b8402272..f8f4dfb0021 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
+@@ -50,13 +50,15 @@ extern NSNotificationName const FlutterSemanticsUpdateNotification;
+  * FlutterViewController and other `UIViewController`s.
+  */
+ FLUTTER_DARWIN_EXPORT
+-#ifdef __IPHONE_13_4
++#if defined(__IPHONE_13_4) && __IPHONE_13_4 && !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ @interface FlutterViewController
+     : UIViewController <FlutterTextureRegistry, FlutterPluginRegistry, UIGestureRecognizerDelegate>
+ #else
+ @interface FlutterViewController : UIViewController <FlutterTextureRegistry, FlutterPluginRegistry>
+ #endif
+ 
++- (UIView*)getAccessibilitySelectionVliew;
++
+ /**
+  * Initializes this FlutterViewController with the specified `FlutterEngine`.
+  *
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.h
+new file mode 100644
+index 00000000000..2659de105ca
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.h
+@@ -0,0 +1,15 @@
++// Copyright 2013 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef FLUTTER_SHELL_PLATFORM_DARWIN_IOS_FRAMEWORK_SOURCE_FLUTTERACCESSIBILITYSELECTIONVIEW_H_
++#define FLUTTER_SHELL_PLATFORM_DARWIN_IOS_FRAMEWORK_SOURCE_FLUTTERACCESSIBILITYSELECTIONVIEW_H_
++
++#import <UIKit/UIKit.h>
++#import "flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h"
++
++@interface FlutterAccessibilitySelectionView : UIView
++- (void)updateSemantics:(SemanticsObject*)object;
++@end
++
++#endif  // FLUTTER_SHELL_PLATFORM_DARWIN_IOS_FRAMEWORK_SOURCE_FLUTTERSELECTIONOVERLAYVIEW_H_
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.mm
+new file mode 100644
+index 00000000000..d515c74d1bb
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.mm
+@@ -0,0 +1,73 @@
++// Copyright 2013 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.h"
++#import "flutter/shell/platform/darwin/common/framework/Headers/FlutterMacros.h"
++
++
++@interface FlutterAccessibilitySelectionView ()
++@property(nonatomic) int32_t uid;
++@end
++
++
++@implementation FlutterAccessibilitySelectionView
++
++- (instancetype)initWithFrame:(CGRect)frame {
++    self = [super initWithFrame:frame];
++    if (self) {
++        self.userInteractionEnabled = YES;
++        self.hidden = YES;  // default hidden, make visible on move
++        self.backgroundColor = [UIColor clearColor]; // Make sure background is transparent
++        self.isAccessibilityElement = YES;
++        self.accessibilityLabel = @"";
++        self.accessibilityHint = @"";
++        self.accessibilityTraits = UIAccessibilityTraitStaticText;
++        self.uid = -1;
++    }
++    return self;
++}
++
++- (void)updateSemantics:(SemanticsObject*)object {
++    if(object){
++        // only update when different to avoid flashing of system selection rectangle
++        if( (self.uid != object.uid) || !CGRectEqualToRect(self.accessibilityFrame, object.accessibilityFrame) ){
++            self.hidden = NO;
++            self.isAccessibilityElement = YES;
++            self.userInteractionEnabled = YES;
++
++            self.frame = object.accessibilityFrame;
++            self.accessibilityFrame = object.accessibilityFrame;
++
++            // copy SemanticsObject(UIAccessibilityElement) content to UIView
++            self.accessibilityLabel = object.accessibilityLabel;
++            self.accessibilityHint = object.accessibilityHint;
++            self.accessibilityValue = object.accessibilityValue;
++            self.accessibilityTraits = object.accessibilityTraits;
++            self.accessibilityIdentifier = object.accessibilityIdentifier;
++            self.uid = object.uid;
++
++            [self setNeedsDisplay]; // Triggers redraw
++
++            // Force the selection to be the top view so that it is always visible. Otherwise new semantic scroll views are added on top
++            [self.superview bringSubviewToFront:self];
++
++            // Force focus so that tvOS shows the focus rectangle
++            [self setNeedsFocusUpdate];
++            [self updateFocusIfNeeded];
++        }
++    }
++    else {
++        self.hidden = YES;
++        self.isAccessibilityElement = NO;   // make sure that in "explorer mode" the focused rectangle is not visible
++        self.userInteractionEnabled = NO;
++        self.uid = -1;
++        [self setNeedsDisplay]; // Triggers redraw
++    }
++}
++
++- (BOOL)canBecomeFocused {
++    return (self.hidden == NO);
++}
++
++@end

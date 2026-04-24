@@ -1,0 +1,134 @@
+From 0b46fc7d2972c402cc02f363bfe2ed9f8a1d1040 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:56:46 +0200
+Subject: [PATCH 10/32] tvos: port FlutterViewControllerTest (guard iOS-only
+ tests)
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
+index 66614c12163..337444a8ac7 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
+@@ -311,6 +311,7 @@ - (void)testSetupKeyboardSpringAnimationIfNeeded {
+   XCTAssertTrue(keyboardSpringAnimation != nil);
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testKeyboardAnimationIsShowingAndCompounding {
+   FlutterEngine* engine = [[FlutterEngine alloc] init];
+   [engine runWithEntrypoint:nil];
+@@ -400,7 +401,9 @@ - (void)testKeyboardAnimationIsShowingAndCompounding {
+   XCTAssertFalse(isShowingAnimation4);
+   XCTAssertTrue(isShowingAnimation3 == isShowingAnimation4);
+ }
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testShouldIgnoreKeyboardNotification {
+   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
+   [mockEngine createShell:@"" libraryURI:@"" initialRoute:nil];
+@@ -486,7 +489,7 @@ - (void)testShouldIgnoreKeyboardNotification {
+   shouldIgnore = [viewControllerMock shouldIgnoreKeyboardNotification:notification];
+   XCTAssertTrue(shouldIgnore == NO);
+ }
+-
++#endif
+ - (void)testKeyboardAnimationWillNotCrashWhenEngineDestroyed {
+   FlutterEngine* engine = [[FlutterEngine alloc] init];
+   [engine runWithEntrypoint:nil];
+@@ -526,6 +529,7 @@ - (void)testKeyboardAnimationWillWaitUIThreadVsync {
+   XCTAssertTrue(fulfillTime - startTime > delayTime);
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testCalculateKeyboardAttachMode {
+   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
+   [mockEngine createShell:@"" libraryURI:@"" initialRoute:nil];
+@@ -654,6 +658,7 @@ - (void)testCalculateKeyboardAttachMode {
+   keyboardMode = [viewControllerMock calculateKeyboardAttachMode:notification];
+   XCTAssertTrue(keyboardMode == FlutterKeyboardModeHidden);
+ }
++#endif
+ 
+ - (void)testCalculateMultitaskingAdjustment {
+   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
+@@ -711,6 +716,7 @@ - (void)testCalculateKeyboardInset {
+   XCTAssertTrue(inset == 300 * screen.scale);
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testHandleKeyboardNotification {
+   FlutterEngine* engine = [[FlutterEngine alloc] init];
+   [engine runWithEntrypoint:nil];
+@@ -748,7 +754,9 @@ - (void)testHandleKeyboardNotification {
+   OCMVerify([viewControllerMock startKeyBoardAnimation:0.25]);
+   [self waitForExpectationsWithTimeout:5.0 handler:nil];
+ }
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testEnsureBottomInsetIsZeroWhenKeyboardDismissed {
+   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
+   [mockEngine createShell:@"" libraryURI:@"" initialRoute:nil];
+@@ -823,6 +831,7 @@ - (void)testStopKeyBoardAnimationWhenReceivedWillHideNotificationAfterWillShowNo
+   XCTAssertNil(viewControllerMock.keyboardAnimationView);
+   XCTAssertNil(viewControllerMock.keyboardSpringAnimation);
+ }
++#endif
+ 
+ - (void)testEnsureViewportMetricsWillInvokeAndDisplayLinkWillInvalidateInViewDidDisappear {
+   FlutterEngine* mockEngine = OCMPartialMock([[FlutterEngine alloc] init]);
+@@ -1498,6 +1507,7 @@ - (void)testAccessibilityPerformEscapePopsRoute {
+   [mockNavigationChannel stopMocking];
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testPerformOrientationUpdateForcesOrientationChange {
+   [self orientationTestWithOrientationUpdate:UIInterfaceOrientationMaskPortrait
+                           currentOrientation:UIInterfaceOrientationLandscapeLeft
+@@ -1574,7 +1584,9 @@ - (void)testPerformOrientationUpdateForcesOrientationChange {
+                         didChangeOrientation:YES
+                         resultingOrientation:UIInterfaceOrientationPortrait];
+ }
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testPerformOrientationUpdateDoesNotForceOrientationChange {
+   [self orientationTestWithOrientationUpdate:UIInterfaceOrientationMaskAll
+                           currentOrientation:UIInterfaceOrientationPortrait
+@@ -1641,9 +1653,11 @@ - (void)testPerformOrientationUpdateDoesNotForceOrientationChange {
+                         didChangeOrientation:NO
+                         resultingOrientation:static_cast<UIInterfaceOrientation>(0)];
+ }
++#endif
+ 
+ // Perform an orientation update test that fails when the expected outcome
+ // for an orientation update is not met
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)orientationTestWithOrientationUpdate:(UIInterfaceOrientationMask)mask
+                           currentOrientation:(UIInterfaceOrientation)currentOrientation
+                         didChangeOrientation:(BOOL)didChange
+@@ -1704,6 +1718,7 @@ - (void)orientationTestWithOrientationUpdate:(UIInterfaceOrientationMask)mask
+   [mockApplication stopMocking];
+   XCTAssertNil(weakPreferences);
+ }
++#endif
+ 
+ // Creates a mocked UITraitCollection with nil values for everything except accessibilityContrast,
+ // which is set to the given "contrast".
+@@ -1760,6 +1775,7 @@ - (void)testDoesntLoadViewInInit {
+   engine.viewController = nil;
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testHideOverlay {
+   FlutterDartProject* project = [[FlutterDartProject alloc] init];
+   FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"foobar" project:project];
+@@ -1773,6 +1789,7 @@ - (void)testHideOverlay {
+   XCTAssertTrue(realVC.prefersHomeIndicatorAutoHidden, @"");
+   engine.viewController = nil;
+ }
++#endif
+ 
+ - (void)testNotifyLowMemory {
+   FlutterEnginePartialMock* mockEngine = [[FlutterEnginePartialMock alloc] init];

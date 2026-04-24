@@ -1,0 +1,53 @@
+From c15d203972a3e12db6a6b8e354bca02412deae8a Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:48:41 +0200
+Subject: [PATCH 18/32] tvos: gate WebKit/IOKit on is_tvos GN arg (default
+ false)
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+index c8fedd0ecf1..eeffd1e7d71 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
++++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+@@ -4,6 +4,13 @@
+ 
+ assert(is_ios)
+ 
++declare_args() {
++  # tvOS build toggle. When true, the iOS framework omits WebKit/IOKit (not
++  # available on tvOS) and links GameController/MediaPlayer unconditionally for
++  # Siri Remote support. Defaults to false so vanilla iOS builds are unaffected.
++  is_tvos = false
++}
++
+ import("//build/config/darwin/darwin_sdk.gni")
+ import("//build/toolchain/clang.gni")
+ import("//build/toolchain/toolchain.gni")
+@@ -185,17 +192,23 @@ source_set("flutter_framework_source") {
+     "CoreVideo.framework",
+     "IOSurface.framework",
+     "QuartzCore.framework",
+-    # tvos: WebKit not available on tvOS; GameController + MediaPlayer needed for Siri Remote.
+-    # "WebKit.framework",
+     "UIKit.framework",
++    # GameController/MediaPlayer are used on tvOS for Siri Remote; harmless on iOS.
+     "GameController.framework",
+     "MediaPlayer.framework",
+   ]
++  if (!is_tvos) {
++    # WebKit is iOS-only; WKWebView is used by FlutterPlatformViews for embedded
++    # web content. Omitted on tvOS where WebKit is unavailable.
++    frameworks += [ "WebKit.framework" ]
++  }
+   if (flutter_runtime_mode == "profile" || flutter_runtime_mode == "debug") {
+     # This is required by the profiler_metrics_ios.mm to get GPU statistics.
+     # Usage in release builds will cause rejection from the App Store.
+-    # tvos: IOKit not available on tvOS
+-    # frameworks += [ "IOKit.framework" ]
++    # Not available on tvOS.
++    if (!is_tvos) {
++      frameworks += [ "IOKit.framework" ]
++    }
+   }
+ 
+   deps = [
