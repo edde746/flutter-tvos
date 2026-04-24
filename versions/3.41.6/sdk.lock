@@ -20,3 +20,8 @@ DART_COMMIT=02abc57898bebc334a997e609ce5827c8ef207d7
 # Skia pinned to the revision the engine's DEPS resolves to for 3.41.6.
 SKIA_REPO=https://skia.googlesource.com/skia.git
 SKIA_COMMIT=a183ded9ad67d998a5b0fe4cd86d3ef5402ffb45
+
+# Perfetto (tracing, vendored inside Dart's third_party). Needs at least one
+# tvOS patch to skip fork()/setsid() calls that tvOS SDK hides.
+PERFETTO_REPO=https://android.googlesource.com/platform/external/perfetto
+PERFETTO_COMMIT=13ce0c9e13b0940d2476cd0cff2301708a9a2e2b

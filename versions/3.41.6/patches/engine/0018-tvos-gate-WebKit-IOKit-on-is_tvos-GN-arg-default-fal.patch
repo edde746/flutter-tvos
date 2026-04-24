@@ -1,4 +1,4 @@
-From c15d203972a3e12db6a6b8e354bca02412deae8a Mon Sep 17 00:00:00 2001
+From 42341ed106d197906754f30d549a030462e2efbb Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:48:41 +0200
 Subject: [PATCH 18/32] tvos: gate WebKit/IOKit on is_tvos GN arg (default
@@ -6,7 +6,7 @@ Subject: [PATCH 18/32] tvos: gate WebKit/IOKit on is_tvos GN arg (default
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
-index c8fedd0ecf1..eeffd1e7d71 100644
+index c8fedd0e..eeffd1e7 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
 +++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
 @@ -4,6 +4,13 @@

@@ -1,4 +1,4 @@
-From 7fed048a9751305b19e9c82890ff81cb36fe5c54 Mon Sep 17 00:00:00 2001
+From c5ca375880b3ca827fa17aef2a474a16192e97f3 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:03:37 +0200
 Subject: [PATCH 27/32] tvos: add TVOS_BUILD_NOTES.md summarizing build system
@@ -7,7 +7,7 @@ Subject: [PATCH 27/32] tvos: add TVOS_BUILD_NOTES.md summarizing build system
 
 diff --git a/TVOS_BUILD_NOTES.md b/TVOS_BUILD_NOTES.md
 new file mode 100644
-index 00000000000..1753403d553
+index 00000000..1753403d
 --- /dev/null
 +++ b/TVOS_BUILD_NOTES.md
 @@ -0,0 +1,132 @@

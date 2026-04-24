@@ -1,11 +1,11 @@
-From ce93d1a7243b8eca6edc9074779896d00a7956a2 Mon Sep 17 00:00:00 2001
+From 1b5d36530835d3862533c931ecd250e11b869730 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:31:19 +0200
 Subject: [PATCH 02/32] tvos: port build flags and fml headers
 
 
 diff --git a/engine/src/flutter/BUILD.gn b/engine/src/flutter/BUILD.gn
-index ec7b55d24f1..d39d91e96cc 100644
+index ec7b55d2..d39d91e9 100644
 --- a/engine/src/flutter/BUILD.gn
 +++ b/engine/src/flutter/BUILD.gn
 @@ -173,7 +173,8 @@ group("flutter") {
@@ -19,7 +19,7 @@ index ec7b55d24f1..d39d91e96cc 100644
  
    # Build the standalone Embedder API SDK for platforms that don't vend all
 diff --git a/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn b/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn
-index 5f1a172b8b2..de64db0f543 100644
+index 5f1a172b..de64db0f 100644
 --- a/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn
 +++ b/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn
 @@ -23,7 +23,7 @@ source_set("ocmock_src") {
@@ -32,7 +32,7 @@ index 5f1a172b8b2..de64db0f543 100644
  
    sources = [
 diff --git a/engine/src/flutter/display_list/BUILD.gn b/engine/src/flutter/display_list/BUILD.gn
-index 19b4d63a353..36f9c413003 100644
+index 19b4d63a..36f9c413 100644
 --- a/engine/src/flutter/display_list/BUILD.gn
 +++ b/engine/src/flutter/display_list/BUILD.gn
 @@ -334,7 +334,7 @@ if (is_ios && enable_unittests) {
@@ -45,7 +45,7 @@ index 19b4d63a353..36f9c413003 100644
      ldflags =
          [ "-Wl,-install_name,@rpath/libios_display_list_benchmarks.dylib" ]
 diff --git a/engine/src/flutter/fml/build_config.h b/engine/src/flutter/fml/build_config.h
-index aa2f0d7bdf9..8a2197b81c6 100644
+index aa2f0d7b..8a2197b8 100644
 --- a/engine/src/flutter/fml/build_config.h
 +++ b/engine/src/flutter/fml/build_config.h
 @@ -26,10 +26,10 @@
@@ -62,7 +62,7 @@ index aa2f0d7bdf9..8a2197b81c6 100644
  #endif  // defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
  #elif defined(__linux__)
 diff --git a/engine/src/flutter/fml/logging.cc b/engine/src/flutter/fml/logging.cc
-index 15bfa9de368..2956c054474 100644
+index 15bfa9de..2956c054 100644
 --- a/engine/src/flutter/fml/logging.cc
 +++ b/engine/src/flutter/fml/logging.cc
 @@ -159,6 +159,9 @@ LogMessage::~LogMessage() {

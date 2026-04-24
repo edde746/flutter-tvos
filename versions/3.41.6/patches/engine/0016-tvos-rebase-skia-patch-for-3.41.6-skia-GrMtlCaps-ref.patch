@@ -1,4 +1,4 @@
-From 0e6b8d2a92b825f0c9cf731ce4c4387dc7bab7e3 Mon Sep 17 00:00:00 2001
+From 9fa826cba394cb1f432368c0403b2ce7d7e0e701 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:36:53 +0200
 Subject: [PATCH 16/32] tvos: rebase skia patch for 3.41.6 skia (GrMtlCaps
@@ -6,7 +6,7 @@ Subject: [PATCH 16/32] tvos: rebase skia patch for 3.41.6 skia (GrMtlCaps
 
 
 diff --git a/tvos_patches/skia-tvos.diff b/tvos_patches/skia-tvos.diff
-index d8de16f216e..711bd5caa86 100644
+index d8de16f2..711bd5ca 100644
 --- a/tvos_patches/skia-tvos.diff
 +++ b/tvos_patches/skia-tvos.diff
 @@ -1,5 +1,18 @@

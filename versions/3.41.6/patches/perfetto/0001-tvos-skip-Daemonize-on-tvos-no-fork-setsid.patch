@@ -1,0 +1,43 @@
+From 8bf18731942b0ee8a74359c3c24443c8c4840c3b Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 24 Apr 2026 12:43:32 +0200
+Subject: [PATCH] tvos: skip Daemonize on tvos (no fork/setsid)
+
+
+diff --git a/src/base/utils.cc b/src/base/utils.cc
+index 82386fa..6c21c75 100644
+--- a/src/base/utils.cc
++++ b/src/base/utils.cc
+@@ -34,10 +34,18 @@
+ #endif
+ 
+ #if PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)
++#include <TargetConditionals.h>
+ #include <mach-o/dyld.h>
+ #include <mach/vm_page_size.h>
+ #endif
+ 
++// tvOS has no fork()/setsid(). Daemonize() is compiled out below.
++#if PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) && defined(TARGET_OS_TV) && TARGET_OS_TV
++#define PERFETTO_TVOS 1
++#else
++#define PERFETTO_TVOS 0
++#endif
++
+ #if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+ #include <Windows.h>
+ #include <io.h>
+@@ -205,9 +213,10 @@ void UnsetEnv(const std::string& key) {
+ }
+ 
+ void Daemonize(std::function<int()> parent_cb) {
+-#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \
+-    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \
+-    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)
++#if (PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \
++     PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \
++     PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)) && \
++    !PERFETTO_TVOS
+   Pipe pipe = Pipe::Create(Pipe::kBothBlock);
+   pid_t pid;
+   switch (pid = fork()) {

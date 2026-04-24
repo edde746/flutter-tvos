@@ -1,11 +1,11 @@
-From f2606c9df2298451c9f92ba3a5e9cd845fc20a83 Mon Sep 17 00:00:00 2001
+From 12da307baf7a0f0baff1e2bca19f2e8869ae137a Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:00:07 +0200
 Subject: [PATCH 23/32] tvos: add tvos_clang_arm64/arm_sim/x64_sim toolchains
 
 
 diff --git a/engine/src/build/config/BUILDCONFIG.gn b/engine/src/build/config/BUILDCONFIG.gn
-index 2b0d94e1a03..69fa1efa23a 100644
+index 2b0d94e1..69fa1efa 100644
 --- a/engine/src/build/config/BUILDCONFIG.gn
 +++ b/engine/src/build/config/BUILDCONFIG.gn
 @@ -602,7 +602,17 @@ if (custom_toolchain != "") {
@@ -28,7 +28,7 @@ index 2b0d94e1a03..69fa1efa23a 100644
        set_default_toolchain("//build/toolchain/mac:ios_clang_arm_sim")
      } else {
 diff --git a/engine/src/build/toolchain/mac/BUILD.gn b/engine/src/build/toolchain/mac/BUILD.gn
-index a3dfd6f2db9..f48b8f37ea7 100644
+index a3dfd6f2..f48b8f37 100644
 --- a/engine/src/build/toolchain/mac/BUILD.gn
 +++ b/engine/src/build/toolchain/mac/BUILD.gn
 @@ -428,7 +428,7 @@ template("mac_toolchain") {

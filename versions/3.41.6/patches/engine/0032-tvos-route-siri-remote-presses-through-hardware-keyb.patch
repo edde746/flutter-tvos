@@ -1,4 +1,4 @@
-From f56363216a8dc632cdd7bc4a15c2d5986af59c70 Mon Sep 17 00:00:00 2001
+From 28a65f4bbc6a2c8e5bf9fb0fb2fc2c075d35e388 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Fri, 24 Apr 2026 10:30:45 +0200
 Subject: [PATCH 32/32] tvos: route siri remote presses through hardware
@@ -6,7 +6,7 @@ Subject: [PATCH 32/32] tvos: route siri remote presses through hardware
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
-index 3c1482d5f29..8e5dec8270a 100644
+index 3c1482d5..8e5dec82 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 @@ -891,10 +891,15 @@ - (void)handleRightTap:(UITapGestureRecognizer*)recognizer {

@@ -1,11 +1,11 @@
-From 37a5b69f7747627f089e951e0de7377deb13f7c2 Mon Sep 17 00:00:00 2001
+From 9d936bedefc0d0b7f15ec938bc63d846c22e9e86 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:45:06 +0200
 Subject: [PATCH 07/32] tvos: port FlutterTextInputPlugin
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
-index 2e5534fdd19..797122bba64 100644
+index 2e5534fd..797122bb 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
 @@ -30,8 +30,15 @@ typedef NS_ENUM(NSInteger, FlutterScribbleInteractionStatus) {
@@ -48,7 +48,7 @@ index 2e5534fdd19..797122bba64 100644
  - (BOOL)isScribbleAvailable;
  
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
-index 2609df3a9e8..0e09964dd8f 100644
+index 2609df3a..0e09964d 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
 @@ -824,7 +824,9 @@ @implementation FlutterTextInputView {

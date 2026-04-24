@@ -1,4 +1,4 @@
-From 2ddc8d3fb9846222038b65e1947a3ddc6fb4633d Mon Sep 17 00:00:00 2001
+From d0999468242152a196755475f4dbb8050b9cb746 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:47:22 +0200
 Subject: [PATCH 17/32] tvos: fix #ifdef TARGET_OS_TV (always-true on iOS) and
@@ -6,7 +6,7 @@ Subject: [PATCH 17/32] tvos: fix #ifdef TARGET_OS_TV (always-true on iOS) and
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
-index f8f4dfb0021..07b90b3f9c3 100644
+index f8f4dfb0..07b90b3f 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
 @@ -57,7 +57,9 @@ FLUTTER_DARWIN_EXPORT
@@ -21,7 +21,7 @@ index f8f4dfb0021..07b90b3f9c3 100644
  /**
   * Initializes this FlutterViewController with the specified `FlutterEngine`.
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
-index 797122bba64..256f254b6d8 100644
+index 797122bb..256f254b 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
 @@ -30,7 +30,7 @@ typedef NS_ENUM(NSInteger, FlutterScribbleInteractionStatus) {
@@ -43,7 +43,7 @@ index 797122bba64..256f254b6d8 100644
  #else
  @interface FlutterTextInputView
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
-index ea6b7a60cd2..dd62839120c 100644
+index ea6b7a60..dd628391 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 @@ -9,7 +9,7 @@
@@ -159,7 +159,7 @@ index ea6b7a60cd2..dd62839120c 100644
  #else
    UIAccessibilityContrast contrast = self.traitCollection.accessibilityContrast;
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm b/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
-index b2b7e65ab8f..e2e1074b372 100644
+index b2b7e65a..e2e1074b 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
 @@ -21,7 +21,7 @@

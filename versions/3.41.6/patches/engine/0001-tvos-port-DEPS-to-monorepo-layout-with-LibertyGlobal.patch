@@ -1,4 +1,4 @@
-From 572d6f99bfc51512d474c8ad60333733098e17b4 Mon Sep 17 00:00:00 2001
+From 4858ef11cb5af87b3c5c2647f8e8dd40cecef1e3 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:30:05 +0200
 Subject: [PATCH 01/32] tvos: port DEPS to monorepo layout with LibertyGlobal
@@ -6,7 +6,7 @@ Subject: [PATCH 01/32] tvos: port DEPS to monorepo layout with LibertyGlobal
 
 
 diff --git a/DEPS b/DEPS
-index 6b0134d2e73..3a28b05cf95 100644
+index 6b0134d2..3a28b05c 100644
 --- a/DEPS
 +++ b/DEPS
 @@ -8,6 +8,13 @@

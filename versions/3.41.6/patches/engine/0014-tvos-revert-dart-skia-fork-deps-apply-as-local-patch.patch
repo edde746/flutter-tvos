@@ -1,4 +1,4 @@
-From 660ab15f514d4c20c2b033172d2e756509abd486 Mon Sep 17 00:00:00 2001
+From b834910d7093d422ba0110949f800f5f4c207570 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:16:10 +0200
 Subject: [PATCH 14/32] tvos: revert dart/skia fork deps, apply as local
@@ -6,7 +6,7 @@ Subject: [PATCH 14/32] tvos: revert dart/skia fork deps, apply as local
 
 
 diff --git a/DEPS b/DEPS
-index 3a28b05cf95..e478f8c427f 100644
+index 3a28b05c..e478f8c4 100644
 --- a/DEPS
 +++ b/DEPS
 @@ -301,9 +301,11 @@ deps = {
@@ -39,7 +39,7 @@ index 3a28b05cf95..e478f8c427f 100644
    'engine/src/flutter/third_party/ocmock':
     Var('flutter_git') + '/third_party/ocmock' + '@' +  Var('ocmock_rev'),
 diff --git a/TVOS_PORT_NOTES.md b/TVOS_PORT_NOTES.md
-index fe16c747866..402594d2f97 100644
+index bb6ac108..97787539 100644
 --- a/TVOS_PORT_NOTES.md
 +++ b/TVOS_PORT_NOTES.md
 @@ -9,21 +9,24 @@ All commits are on branch `tvos-port` (local only).
@@ -81,7 +81,7 @@ index fe16c747866..402594d2f97 100644
     `command_buffer_mtl.mm`, `sampler_library_mtl.mm`): 3.41.6 simplified these
 diff --git a/tvos_patches/apply.sh b/tvos_patches/apply.sh
 new file mode 100755
-index 00000000000..13ee60e639f
+index 00000000..13ee60e6
 --- /dev/null
 +++ b/tvos_patches/apply.sh
 @@ -0,0 +1,70 @@
@@ -157,7 +157,7 @@ index 00000000000..13ee60e639f
 +echo "Done. dart and skia now carry local tvOS patches."
 diff --git a/tvos_patches/dart-tvos.diff b/tvos_patches/dart-tvos.diff
 new file mode 100644
-index 00000000000..75396dab155
+index 00000000..75396dab
 --- /dev/null
 +++ b/tvos_patches/dart-tvos.diff
 @@ -0,0 +1,120 @@
@@ -283,7 +283,7 @@ index 00000000000..75396dab155
 + #endif
 diff --git a/tvos_patches/skia-tvos.diff b/tvos_patches/skia-tvos.diff
 new file mode 100644
-index 00000000000..d8de16f216e
+index 00000000..d8de16f2
 --- /dev/null
 +++ b/tvos_patches/skia-tvos.diff
 @@ -0,0 +1,192 @@

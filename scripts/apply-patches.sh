@@ -43,9 +43,10 @@ apply_at() {
   )
 }
 
-apply_at engine "$(patches_dir "$VERSION" engine)" "$(sources_dir "$VERSION")"
-apply_at dart   "$(patches_dir "$VERSION" dart)"   "$(dart_src_dir "$VERSION")"
-apply_at skia   "$(patches_dir "$VERSION" skia)"   "$(skia_src_dir "$VERSION")"
+apply_at engine   "$(patches_dir "$VERSION" engine)"   "$(sources_dir "$VERSION")"
+apply_at dart     "$(patches_dir "$VERSION" dart)"     "$(dart_src_dir "$VERSION")"
+apply_at skia     "$(patches_dir "$VERSION" skia)"     "$(skia_src_dir "$VERSION")"
+apply_at perfetto "$(patches_dir "$VERSION" perfetto)" "$(perfetto_src_dir "$VERSION")"
 
 echo
 echo "Patches applied. Ready to build: scripts/build-engine.sh ${VERSION} <variant>"

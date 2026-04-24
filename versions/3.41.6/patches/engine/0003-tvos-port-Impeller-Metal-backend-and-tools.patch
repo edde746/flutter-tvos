@@ -1,11 +1,11 @@
-From 3b15615ffa0f6ed79c56e4a449ae5076bd02d73c Mon Sep 17 00:00:00 2001
+From 33a42c27d4890350905a2bc7df11bb568a82ee65 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:33:40 +0200
 Subject: [PATCH 03/32] tvos: port Impeller Metal backend and tools
 
 
 diff --git a/engine/src/flutter/impeller/compiler/switches.cc b/engine/src/flutter/impeller/compiler/switches.cc
-index 8c42598ad47..7958826c002 100644
+index 8c42598a..7958826c 100644
 --- a/engine/src/flutter/impeller/compiler/switches.cc
 +++ b/engine/src/flutter/impeller/compiler/switches.cc
 @@ -20,6 +20,7 @@ namespace compiler {
@@ -17,7 +17,7 @@ index 8c42598ad47..7958826c002 100644
      {"opengl-es", TargetPlatform::kOpenGLES},
      {"opengl-desktop", TargetPlatform::kOpenGLDesktop},
 diff --git a/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm
-index 0b4f846da20..744e997b5b7 100644
+index 0b4f846d..744e997b 100644
 --- a/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm
 +++ b/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm
 @@ -19,7 +19,11 @@
@@ -92,7 +92,7 @@ index 0b4f846da20..744e997b5b7 100644
  #ifdef IMPELLER_DEBUG
    if (desc.storage_mode != StorageMode::kDeviceTransient) {
 diff --git a/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm
-index 8b6e5a3e26d..7924921e318 100644
+index 8b6e5a3e..7924921e 100644
 --- a/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm
 +++ b/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm
 @@ -14,6 +14,8 @@
@@ -141,7 +141,7 @@ index 8b6e5a3e26d..7924921e318 100644
      auto desc = [[MTLCommandBufferDescriptor alloc] init];
      // Degrades CPU performance slightly but is well worth the cost for typical
 diff --git a/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm
-index b64547b93f2..ea93a545511 100644
+index b64547b9..ea93a545 100644
 --- a/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm
 +++ b/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm
 @@ -29,21 +29,33 @@ static bool DeviceSupportsFramebufferFetch(id<MTLDevice> device) {
@@ -179,7 +179,7 @@ index b64547b93f2..ea93a545511 100644
  
  static std::unique_ptr<Capabilities> InferMetalCapabilities(
 diff --git a/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm
-index 65caef79bae..8afd0d52076 100644
+index 65caef79..8afd0d52 100644
 --- a/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm
 +++ b/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm
 @@ -31,9 +31,11 @@
@@ -196,7 +196,7 @@ index 65caef79bae..8afd0d52076 100644
    if (!descriptor.label.empty()) {
      desc.label = @(descriptor.label.data());
 diff --git a/engine/src/flutter/impeller/tools/metal_library.py b/engine/src/flutter/impeller/tools/metal_library.py
-index 8d3c3a86da0..6c139b4551d 100644
+index 8d3c3a86..6c139b45 100644
 --- a/engine/src/flutter/impeller/tools/metal_library.py
 +++ b/engine/src/flutter/impeller/tools/metal_library.py
 @@ -59,11 +59,11 @@ def main():
@@ -229,7 +229,7 @@ index 8d3c3a86da0..6c139b4551d 100644
    else:
      raise 'Unknown target platform'
 diff --git a/engine/src/flutter/impeller/tools/shaders_mtl.gni b/engine/src/flutter/impeller/tools/shaders_mtl.gni
-index 0364d8cae91..2e8c8962866 100644
+index 0364d8ca..2e8c8962 100644
 --- a/engine/src/flutter/impeller/tools/shaders_mtl.gni
 +++ b/engine/src/flutter/impeller/tools/shaders_mtl.gni
 @@ -36,7 +36,7 @@ template("impeller_shaders_metal") {

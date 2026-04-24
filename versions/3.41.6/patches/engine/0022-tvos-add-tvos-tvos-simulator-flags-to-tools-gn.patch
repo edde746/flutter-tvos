@@ -1,11 +1,11 @@
-From d95aab7f3edf8304a7f10fcb5de3efebd1dddd8b Mon Sep 17 00:00:00 2001
+From 8ff8f1640993a6717148b56b07f6fadc533dd64e Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:59:25 +0200
 Subject: [PATCH 22/32] tvos: add --tvos/--tvos-simulator flags to tools/gn
 
 
 diff --git a/engine/src/flutter/tools/gn b/engine/src/flutter/tools/gn
-index 06a3e28989e..ffb195f6622 100755
+index 06a3e289..ffb195f6 100755
 --- a/engine/src/flutter/tools/gn
 +++ b/engine/src/flutter/tools/gn
 @@ -20,7 +20,12 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil

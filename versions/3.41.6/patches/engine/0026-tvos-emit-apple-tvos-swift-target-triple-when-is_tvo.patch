@@ -1,11 +1,11 @@
-From fe4c2ea2383602b54e03b3a8cdd22ab91f7c31d6 Mon Sep 17 00:00:00 2001
+From 4f9396475adca0cec08ce1c742aec59d96102601 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:02:05 +0200
 Subject: [PATCH 26/32] tvos: emit apple-tvos swift target triple when is_tvos
 
 
 diff --git a/engine/src/build/config/darwin/BUILD.gn b/engine/src/build/config/darwin/BUILD.gn
-index 61c58c70c57..823d7550264 100644
+index 61c58c70..823d7550 100644
 --- a/engine/src/build/config/darwin/BUILD.gn
 +++ b/engine/src/build/config/darwin/BUILD.gn
 @@ -34,7 +34,10 @@ config("compiler") {

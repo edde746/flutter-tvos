@@ -1,4 +1,4 @@
-From 0b46fc7d2972c402cc02f363bfe2ed9f8a1d1040 Mon Sep 17 00:00:00 2001
+From 43647a76202d99ed4c7a39d53c9838486c583d13 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:56:46 +0200
 Subject: [PATCH 10/32] tvos: port FlutterViewControllerTest (guard iOS-only
@@ -6,7 +6,7 @@ Subject: [PATCH 10/32] tvos: port FlutterViewControllerTest (guard iOS-only
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
-index 66614c12163..337444a8ac7 100644
+index 66614c12..337444a8 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
 @@ -311,6 +311,7 @@ - (void)testSetupKeyboardSpringAnimationIfNeeded {

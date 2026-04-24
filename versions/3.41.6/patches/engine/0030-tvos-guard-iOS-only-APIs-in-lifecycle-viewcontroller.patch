@@ -1,4 +1,4 @@
-From 14bbda2e3ff99c439914af846ef06c01eae34c70 Mon Sep 17 00:00:00 2001
+From 41a6f11d8364b19625cce317f6eadcc2cef36bf6 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:15:02 +0200
 Subject: [PATCH 30/32] tvos: guard iOS-only APIs in
@@ -6,7 +6,7 @@ Subject: [PATCH 30/32] tvos: guard iOS-only APIs in
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h
-index f8f40edabd8..16bafbe5eae 100644
+index f8f40eda..16bafbe5 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.h
 @@ -14,9 +14,11 @@
@@ -22,7 +22,7 @@ index f8f40edabd8..16bafbe5eae 100644
  
  namespace flutter {
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
-index ef058661cec..1d1ce7afc7e 100644
+index ef058661..1d1ce7af 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
 @@ -205,9 +205,11 @@ - (BOOL)application:(UIApplication*)application
@@ -52,7 +52,7 @@ index ef058661cec..1d1ce7afc7e 100644
  }
  
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
-index dd62839120c..3c1482d5f29 100644
+index dd628391..3c1482d5 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 @@ -90,7 +90,9 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
@@ -77,7 +77,7 @@ index dd62839120c..3c1482d5f29 100644
  
  @implementation FlutterViewController {
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
-index bc47d4aba61..dd394e1134b 100644
+index bc47d4ab..dd394e11 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
 @@ -50,6 +50,7 @@ typedef void (^FlutterKeyboardAnimationCallback)(fml::TimePoint);
@@ -97,7 +97,7 @@ index bc47d4aba61..dd394e1134b 100644
  @property(nonatomic, readonly) FlutterPlatformViewsController* platformViewsController;
  
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
-index 5f0955e0cba..c782f050b69 100644
+index 5f0955e0..c782f050 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
 @@ -101,7 +101,8 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,

@@ -1,11 +1,11 @@
-From 843243a9e79ab73aa51668d687b569b90257f6e3 Mon Sep 17 00:00:00 2001
+From 0a6aa22790b78f8cf3f6f5edb508b0ed056404fc Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:12:15 +0200
 Subject: [PATCH 29/32] tvos: guard remaining UIApplicationShortcutItem usage
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate_internal.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate_internal.h
-index c68505a520b..dfc658347c8 100644
+index c68505a5..dfc65834 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate_internal.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate_internal.h
 @@ -91,7 +91,8 @@
@@ -19,7 +19,7 @@ index c68505a520b..dfc658347c8 100644
  @end
  ;
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneDelegate.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneDelegate.mm
-index 8973bd91a38..5099b40ce8c 100644
+index 8973bd91..5099b40c 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneDelegate.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneDelegate.mm
 @@ -94,6 +94,7 @@ - (void)scene:(UIScene*)scene
@@ -39,7 +39,7 @@ index 8973bd91a38..5099b40ce8c 100644
  #pragma mark - Helpers
  
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle.mm
-index 019de11b5bb..8e6d2c2a9cb 100644
+index 019de11b..8e6d2c2a 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle.mm
 @@ -406,6 +406,7 @@ - (void)scene:(UIScene*)scene
@@ -73,7 +73,7 @@ index 019de11b5bb..8e6d2c2a9cb 100644
 +#endif
  @end
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle_Internal.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle_Internal.h
-index 749c73b183f..5c41fdc702f 100644
+index 749c73b1..5c41fdc7 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle_Internal.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterSceneLifeCycle_Internal.h
 @@ -80,7 +80,8 @@

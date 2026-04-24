@@ -1,11 +1,11 @@
-From 9cc9f21f3e8f2ed56d65214b281d00e7486ce7a4 Mon Sep 17 00:00:00 2001
+From badbfd8a0f8a2235197bb7792890c5f20068b058 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:59:15 +0200
 Subject: [PATCH 11/32] tvos: port SemanticsObject and accessibility_bridge
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h
-index 2c9e0516112..a349c127516 100644
+index 2c9e0516..a349c127 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h
 @@ -180,9 +180,11 @@ constexpr float kScrollExtentMaxForInf = 1000;
@@ -21,7 +21,7 @@ index 2c9e0516112..a349c127516 100644
  /// The semantics object for scrollable. This class creates an UIScrollView to interact with the
  /// iOS.
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm
-index cdcce174dfa..62357cb5d59 100644
+index cdcce174..62357cb5 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm
 @@ -94,10 +94,13 @@ CGRect ConvertRectToGlobal(SemanticsObject* reference, CGRect local_rect) {
@@ -66,7 +66,7 @@ index cdcce174dfa..62357cb5d59 100644
        }
      }
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
-index 202d54de040..5f0955e0cba 100644
+index 202d54de..5f0955e0 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
 @@ -11,6 +11,7 @@

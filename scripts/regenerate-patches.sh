@@ -56,9 +56,10 @@ regen() {
   fi
 }
 
-regen engine "${ENGINE_COMMIT:-$ENGINE_REF}" "$(sources_dir "$VERSION")"    "$(patches_dir "$VERSION" engine)"
-regen dart   "$DART_COMMIT"                    "$(dart_src_dir "$VERSION")"  "$(patches_dir "$VERSION" dart)"
-regen skia   "$SKIA_COMMIT"                    "$(skia_src_dir "$VERSION")"  "$(patches_dir "$VERSION" skia)"
+regen engine   "${ENGINE_COMMIT:-$ENGINE_REF}" "$(sources_dir "$VERSION")"        "$(patches_dir "$VERSION" engine)"
+regen dart     "$DART_COMMIT"                  "$(dart_src_dir "$VERSION")"      "$(patches_dir "$VERSION" dart)"
+regen skia     "$SKIA_COMMIT"                  "$(skia_src_dir "$VERSION")"      "$(patches_dir "$VERSION" skia)"
+regen perfetto "$PERFETTO_COMMIT"              "$(perfetto_src_dir "$VERSION")"  "$(patches_dir "$VERSION" perfetto)"
 
 echo
 echo "Patches regenerated. Review: git -C ${REPO_ROOT} diff versions/${VERSION}/patches/"

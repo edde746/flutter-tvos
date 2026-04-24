@@ -29,7 +29,8 @@ flutter-tvos/
 │       └── patches/
 │           ├── engine/               # Flutter monorepo patches (git-format-patch series, NNNN-name.patch)
 │           ├── dart/                 # Dart SDK patches
-│           └── skia/                 # Skia patches
+│           ├── skia/                 # Skia patches
+│           └── perfetto/             # Perfetto patches (nested in dart/third_party/perfetto/src)
 ├── depot_tools/                      # (gitignored) auto-cloned if gclient not on PATH
 ├── sources/                          # (gitignored) gclient-synced upstream trees
 └── out/                              # (gitignored) ninja build output promoted here per variant
@@ -40,6 +41,7 @@ After `fetch-sources.sh` finishes, source paths look like:
 - `sources/<v>/engine/src/flutter/`                — engine source (its own git repo)
 - `sources/<v>/engine/src/flutter/third_party/dart/`  — dart SDK (its own git repo)
 - `sources/<v>/engine/src/flutter/third_party/skia/`  — skia (its own git repo)
+- `sources/<v>/engine/src/flutter/third_party/dart/third_party/perfetto/src/` — perfetto (its own git repo; nested under dart)
 - `sources/<v>/engine/src/flutter/prebuilts/`      — Apple SDKs, toolchains (CIPD-managed, not git)
 
 The monorepo root (`sources/<v>/`, where `.gclient` lives) is **also** a git repo — the top-level Flutter monorepo. Engine patches target that root (paths like `a/engine/src/flutter/...`).

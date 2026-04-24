@@ -1,4 +1,4 @@
-From 8a407759d01dd6adee123b040b4a329598b76d2f Mon Sep 17 00:00:00 2001
+From d4593fa9f15abbcfdc0283c5a81a54c7e2f10555 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:36:42 +0200
 Subject: [PATCH] tvos 3.27.4 changes (ported from LibertyGlobal, rebased for
@@ -6,7 +6,7 @@ Subject: [PATCH] tvos 3.27.4 changes (ported from LibertyGlobal, rebased for
 
 
 diff --git a/src/gpu/ganesh/mtl/GrMtlCaps.mm b/src/gpu/ganesh/mtl/GrMtlCaps.mm
-index cdc30ab5ad..c37b386b4d 100644
+index cdc30ab..c37b386 100644
 --- a/src/gpu/ganesh/mtl/GrMtlCaps.mm
 +++ b/src/gpu/ganesh/mtl/GrMtlCaps.mm
 @@ -102,8 +102,10 @@
@@ -79,7 +79,7 @@ index cdc30ab5ad..c37b386b4d 100644
      // No supported GPU families were found
      return false;
 diff --git a/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm b/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm
-index 3bd7a192c1..1f463cfecf 100644
+index 3bd7a19..1f463cf 100644
 --- a/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm
 +++ b/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm
 @@ -23,6 +23,9 @@
@@ -101,7 +101,7 @@ index 3bd7a192c1..1f463cfecf 100644
  #ifdef SK_ENABLE_MTL_DEBUG_INFO
      mtlCommandBuffer.label = @"GrMtlCommandBuffer::Make";
 diff --git a/src/gpu/ganesh/mtl/GrMtlGpu.mm b/src/gpu/ganesh/mtl/GrMtlGpu.mm
-index 50096927d9..921552c178 100644
+index 5009692..921552c 100644
 --- a/src/gpu/ganesh/mtl/GrMtlGpu.mm
 +++ b/src/gpu/ganesh/mtl/GrMtlGpu.mm
 @@ -1806,10 +1806,12 @@ void copy_src_data(char* dst,
@@ -131,7 +131,7 @@ index 50096927d9..921552c178 100644
      writer->endObject();
  
 diff --git a/src/gpu/graphite/mtl/MtlCaps.mm b/src/gpu/graphite/mtl/MtlCaps.mm
-index 62eeaa2e9c..d372a75b61 100644
+index 62eeaa2..d372a75 100644
 --- a/src/gpu/graphite/mtl/MtlCaps.mm
 +++ b/src/gpu/graphite/mtl/MtlCaps.mm
 @@ -40,6 +40,7 @@

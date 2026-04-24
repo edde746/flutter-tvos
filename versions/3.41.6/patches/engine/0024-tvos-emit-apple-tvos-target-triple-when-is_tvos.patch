@@ -1,11 +1,11 @@
-From c0402f8b513672ff1982daa076520bc23d94e7e6 Mon Sep 17 00:00:00 2001
+From 4e70df29dd6283ee115de7b9bd3c05158ba25c7a Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:00:45 +0200
 Subject: [PATCH 24/32] tvos: emit apple-tvos target triple when is_tvos
 
 
 diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn
-index 2d5e0e0ccbc..19acb774899 100644
+index 2d5e0e0c..19acb774 100644
 --- a/engine/src/build/config/compiler/BUILD.gn
 +++ b/engine/src/build/config/compiler/BUILD.gn
 @@ -22,6 +22,10 @@ import("//build/toolchain/clang.gni")

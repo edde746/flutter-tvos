@@ -1,4 +1,4 @@
-From 80ced7aba3a0b5cf6aee5393c4b03bbf4cf74f59 Mon Sep 17 00:00:00 2001
+From afc7e5e211a2494ae8df7ef3a6ed785fade56882 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:46:31 +0200
 Subject: [PATCH 08/32] tvos: port FlutterTextInputPluginTest,
@@ -6,7 +6,7 @@ Subject: [PATCH 08/32] tvos: port FlutterTextInputPluginTest,
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTest.mm
-index 72d3a183b79..0692583bfb4 100644
+index 72d3a183..0692583b 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTest.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTest.mm
 @@ -149,8 +149,10 @@ - (void)setUp {
@@ -73,7 +73,7 @@ index 72d3a183b79..0692583bfb4 100644
      [inputView setMarkedText:@"marked text" selectedRange:NSMakeRange(0, 1)];
      // updateEditingClient fires in response to setMarkedText.
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterUndoManagerPlugin.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterUndoManagerPlugin.mm
-index 32810dcacc9..5d013454029 100644
+index 32810dca..5d013454 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterUndoManagerPlugin.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterUndoManagerPlugin.mm
 @@ -100,8 +100,15 @@ - (void)setUndoState:(NSDictionary*)dictionary {
@@ -93,7 +93,7 @@ index 32810dcacc9..5d013454029 100644
    undoManager.groupsByEvent = groupsByEvent;
  }
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterView.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterView.mm
-index a3756745694..c29eb09579e 100644
+index a3756745..c29eb095 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterView.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterView.mm
 @@ -40,7 +40,12 @@ - (instancetype)initWithCoder:(NSCoder*)aDecoder {

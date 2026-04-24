@@ -1,4 +1,4 @@
-From 55d20fa85f463dcadede59101541ef76e80a0019 Mon Sep 17 00:00:00 2001
+From d74263f16123814586faf692c932cdb81b01be2b Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:39:18 +0200
 Subject: [PATCH 05/32] tvos: port FlutterAppDelegate, FlutterDartProject,
@@ -6,7 +6,7 @@ Subject: [PATCH 05/32] tvos: port FlutterAppDelegate, FlutterDartProject,
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm
-index 03bf0b3db1d..8a4f6da1d76 100644
+index 03bf0b3d..8a4f6da1 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm
 @@ -88,6 +88,7 @@ - (void)applicationDidBecomeActive:(UIApplication*)application {
@@ -74,7 +74,7 @@ index 03bf0b3db1d..8a4f6da1d76 100644
  - (void)application:(UIApplication*)application
      handleEventsForBackgroundURLSession:(nonnull NSString*)identifier
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm
-index 31a49a856a4..a7fd686bca0 100644
+index 31a49a85..a7fd686b 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm
 @@ -29,6 +29,7 @@
@@ -115,7 +115,7 @@ index 31a49a856a4..a7fd686bca0 100644
  
    NSNumber* nsAntialiasLines = [mainBundle objectForInfoDictionaryKey:@"FLTAntialiasLines"];
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm
-index 808d87a31a3..38790497a1e 100644
+index 808d87a3..38790497 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm
 @@ -21,13 +21,17 @@

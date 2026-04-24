@@ -1,11 +1,11 @@
-From e29e046be2ad1a88697e328e5bc662f58fe29963 Mon Sep 17 00:00:00 2001
+From c2e51d6954575b64ef76e292c8981b6f470efb57 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:07:09 +0200
 Subject: [PATCH 2/3] tvos: define DART_HOST_OS_TV and guard execvp
 
 
 diff --git a/runtime/bin/process_macos.cc b/runtime/bin/process_macos.cc
-index 7864788a7d2..4cd71fc227b 100644
+index 7864788a..4cd71fc2 100644
 --- a/runtime/bin/process_macos.cc
 +++ b/runtime/bin/process_macos.cc
 @@ -911,8 +911,8 @@ int Process::Exec(Namespace* namespc,
@@ -20,7 +20,7 @@ index 7864788a7d2..4cd71fc227b 100644
    return -1;
  #else
 diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
-index 8a4d534b3bc..00a9d6c45b7 100644
+index 8a4d534b..00a9d6c4 100644
 --- a/runtime/platform/globals.h
 +++ b/runtime/platform/globals.h
 @@ -122,6 +122,9 @@

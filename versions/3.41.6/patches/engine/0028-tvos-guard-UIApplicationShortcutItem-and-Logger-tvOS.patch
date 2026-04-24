@@ -1,4 +1,4 @@
-From 234c9a022f761bb099aadf0987ff9bcb6aa8a127 Mon Sep 17 00:00:00 2001
+From 5dd25c17d86ba4758daf049c97dfd2dab7bbbac4 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:06:00 +0200
 Subject: [PATCH 28/32] tvos: guard UIApplicationShortcutItem and Logger tvOS
@@ -6,7 +6,7 @@ Subject: [PATCH 28/32] tvos: guard UIApplicationShortcutItem and Logger tvOS
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift b/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift
-index 089b2068a3b..469d8a4baf5 100644
+index 089b2068..469d8a4b 100644
 --- a/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift
 +++ b/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift
 @@ -49,13 +49,15 @@ import Foundation
@@ -28,7 +28,7 @@ index 089b2068a3b..469d8a4baf5 100644
    }
  
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h
-index 72f1568a4ab..b531cfad1f0 100644
+index 72f1568a..b531cfad 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h
 @@ -94,7 +94,8 @@ API_AVAILABLE(ios(13.0))

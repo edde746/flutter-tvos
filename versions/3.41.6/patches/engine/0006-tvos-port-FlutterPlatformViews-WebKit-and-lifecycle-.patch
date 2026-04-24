@@ -1,4 +1,4 @@
-From fdf1fd8c18d4edf910521512a2610450cb232864 Mon Sep 17 00:00:00 2001
+From 12de3ff74637c31b1a5fef760f63f65203e62272 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:41:17 +0200
 Subject: [PATCH 06/32] tvos: port FlutterPlatformViews WebKit and lifecycle
@@ -6,7 +6,7 @@ Subject: [PATCH 06/32] tvos: port FlutterPlatformViews WebKit and lifecycle
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPluginTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPluginTest.mm
-index 7fd8d8c9cd3..394e4443942 100644
+index 7fd8d8c9..394e4443 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPluginTest.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPluginTest.mm
 @@ -19,20 +19,26 @@ @interface FlutterPlatformPluginTest : XCTestCase
@@ -45,7 +45,7 @@ index 7fd8d8c9cd3..394e4443942 100644
  - (void)testPopSystemNavigator {
    FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"test" project:nil];
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews.mm
-index a4998097d6a..8b6654aa879 100644
+index a4998097..8b6654aa 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews.mm
 @@ -4,7 +4,9 @@
@@ -97,7 +97,7 @@ index a4998097d6a..8b6654aa879 100644
        [self searchAndFixWebView:subview];
      }
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
-index abff30d3083..ef058661cec 100644
+index abff30d3..ef058661 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm
 @@ -392,8 +392,7 @@ - (void)handleWillTerminate:(NSNotification*)notification

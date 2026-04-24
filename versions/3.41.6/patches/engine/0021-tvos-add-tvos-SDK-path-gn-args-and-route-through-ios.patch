@@ -1,4 +1,4 @@
-From 46fba56d4fcba9a8437f14d6198cdda5ad54c96b Mon Sep 17 00:00:00 2001
+From 897dc77ac9c016a3e447b1fe109b00b54a271465 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:58:24 +0200
 Subject: [PATCH 21/32] tvos: add tvos SDK path gn args and route through
@@ -6,7 +6,7 @@ Subject: [PATCH 21/32] tvos: add tvos SDK path gn args and route through
 
 
 diff --git a/engine/src/build/config/darwin/darwin_sdk.gni b/engine/src/build/config/darwin/darwin_sdk.gni
-index 6c3cd0ce907..04f7ec873c2 100644
+index 6c3cd0ce..04f7ec87 100644
 --- a/engine/src/build/config/darwin/darwin_sdk.gni
 +++ b/engine/src/build/config/darwin/darwin_sdk.gni
 @@ -68,6 +68,38 @@ declare_args() {
@@ -136,7 +136,7 @@ index 6c3cd0ce907..04f7ec873c2 100644
 +  }
 +}
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
-index eeffd1e7d71..55e7da3eeff 100644
+index eeffd1e7..55e7da3e 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
 +++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
 @@ -4,13 +4,6 @@

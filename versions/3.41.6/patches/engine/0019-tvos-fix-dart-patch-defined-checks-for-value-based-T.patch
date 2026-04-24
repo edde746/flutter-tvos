@@ -1,4 +1,4 @@
-From 23cee92cfbfb1553c91f8fcf816d84f046150d92 Mon Sep 17 00:00:00 2001
+From c57f7719066c6717927098eaaa15d3ddf60af138 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:50:58 +0200
 Subject: [PATCH 19/32] tvos: fix dart patch defined() checks for value-based
@@ -6,7 +6,7 @@ Subject: [PATCH 19/32] tvos: fix dart patch defined() checks for value-based
 
 
 diff --git a/tvos_patches/dart-tvos.diff b/tvos_patches/dart-tvos.diff
-index 75396dab155..473cc95322b 100644
+index 75396dab..473cc953 100644
 --- a/tvos_patches/dart-tvos.diff
 +++ b/tvos_patches/dart-tvos.diff
 @@ -1,5 +1,18 @@

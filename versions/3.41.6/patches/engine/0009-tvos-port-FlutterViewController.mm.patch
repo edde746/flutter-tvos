@@ -1,11 +1,11 @@
-From e08ffca0d13c9288bdc95a3f84f559e3e06614d8 Mon Sep 17 00:00:00 2001
+From 68d45337071d1d541f99e0db53937991aed68d7f Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:53:45 +0200
 Subject: [PATCH 09/32] tvos: port FlutterViewController.mm
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
-index 74fea45026d..ea6b7a60cd2 100644
+index 74fea450..ea6b7a60 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 @@ -9,6 +9,11 @@

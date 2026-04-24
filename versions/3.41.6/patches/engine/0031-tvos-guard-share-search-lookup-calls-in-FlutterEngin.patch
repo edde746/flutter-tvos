@@ -1,11 +1,11 @@
-From 766fbeada9de1881fbc9d1192b7b7f14451dd35a Mon Sep 17 00:00:00 2001
+From 68a2cd4e76e95815fab7b50323b5d4bc065724f3 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:15:30 +0200
 Subject: [PATCH 31/32] tvos: guard share/search/lookup calls in FlutterEngine
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm
-index 41c5a66176b..3a4bacbcaaa 100644
+index 41c5a661..3a4bacbc 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm
 @@ -1131,17 +1131,23 @@ - (void)flutterTextInputView:(FlutterTextInputView*)textInputView

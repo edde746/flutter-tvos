@@ -51,6 +51,12 @@ skia_src_dir() {
   echo "$(engine_src_dir "$version")/third_party/skia"
 }
 
+# Path to the perfetto checkout (nested under dart/third_party/perfetto/src).
+perfetto_src_dir() {
+  local version="$1"
+  echo "$(dart_src_dir "$version")/third_party/perfetto/src"
+}
+
 patches_dir() {
   local version="$1"
   local component="$2"  # engine | dart | skia
