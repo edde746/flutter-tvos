@@ -1,7 +1,7 @@
 From 39a19f7032c40c0c5628a67cf0b7b4fac7dd24c9 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Tue, 5 May 2026 22:47:20 +0200
-Subject: [PATCH 35/35] tvos: fix Siri Remote directional clicks
+Subject: [PATCH 35/36] tvos: fix Siri Remote directional clicks
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
