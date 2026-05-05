@@ -1,7 +1,7 @@
 From 5dd25c17d86ba4758daf049c97dfd2dab7bbbac4 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:06:00 +0200
-Subject: [PATCH 28/36] tvos: guard UIApplicationShortcutItem and Logger tvOS
+Subject: [PATCH 28/37] tvos: guard UIApplicationShortcutItem and Logger tvOS
  branch
 
 

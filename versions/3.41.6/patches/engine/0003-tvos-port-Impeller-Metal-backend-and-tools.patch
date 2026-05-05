@@ -1,7 +1,7 @@
 From 33a42c27d4890350905a2bc7df11bb568a82ee65 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:33:40 +0200
-Subject: [PATCH 03/36] tvos: port Impeller Metal backend and tools
+Subject: [PATCH 03/37] tvos: port Impeller Metal backend and tools
 
 
 diff --git a/engine/src/flutter/impeller/compiler/switches.cc b/engine/src/flutter/impeller/compiler/switches.cc

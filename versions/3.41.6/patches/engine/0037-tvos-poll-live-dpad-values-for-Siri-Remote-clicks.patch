@@ -1,0 +1,140 @@
+From ea9202e67911e30db86c31f882601689a956d75e Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Tue, 5 May 2026 23:38:16 +0200
+Subject: [PATCH 37/37] tvos: poll live dpad values for Siri Remote clicks
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 6a219875..15bfe367 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -89,10 +89,7 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ @property(nonatomic, assign) BOOL dpadTouchActive;
+ @property(nonatomic, assign) float dpadSwipeAnchorX;
+ @property(nonatomic, assign) float dpadSwipeAnchorY;
+-@property(nonatomic, assign) float lastMicroGamepadX;
+-@property(nonatomic, assign) float lastMicroGamepadY;
+-@property(nonatomic, assign) BOOL hasMicroGamepadPosition;
+-@property(nonatomic, assign) NSTimeInterval lastMicroGamepadTimestamp;
++@property(nonatomic, weak) GCMicroGamepad* activeMicroGamepad;
+ @property(nonatomic, assign) NSTimeInterval lastDpadKeyTimestamp;
+ @property(nonatomic, assign) NSTimeInterval lastDirectionalClickTimestamp;
+ @property(nonatomic, assign) BOOL suppressSelectKeyUpForDirectionalClick;
+@@ -1030,25 +1027,16 @@ - (void)physicalLogicalForAxis:(NSInteger)axisIndex
+   }
+ }
+ 
+-// Returns YES when the most recent absolute clickpad/touchpad location is
+-// clearly in a directional region. Center/ambiguous positions are left to the
+-// normal Select path.
+-- (BOOL)directionalPhysicalLogicalFromCurrentDpadPhysical:(uint64_t*)outPhysical
+-                                                  logical:(uint64_t*)outLogical {
++// Returns YES when an absolute clickpad/touchpad location is clearly in a
++// directional region. Center/ambiguous positions are left to Select.
++- (BOOL)directionalPhysicalLogicalForDpadX:(float)xValue
++                                         y:(float)yValue
++                                  physical:(uint64_t*)outPhysical
++                                   logical:(uint64_t*)outLogical {
+   static const float kDirectionalClickThreshold = 0.55f;
+-  static const NSTimeInterval kPositionStaleTimeout = 0.60;
+ 
+-  if (!self.hasMicroGamepadPosition) {
+-    return NO;
+-  }
+-
+-  NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
+-  if (now - self.lastMicroGamepadTimestamp > kPositionStaleTimeout) {
+-    return NO;
+-  }
+-
+-  float absX = fabsf(self.lastMicroGamepadX);
+-  float absY = fabsf(self.lastMicroGamepadY);
++  float absX = fabsf(xValue);
++  float absY = fabsf(yValue);
+   if (absX < kDirectionalClickThreshold && absY < kDirectionalClickThreshold) {
+     return NO;
+   }
+@@ -1056,15 +1044,27 @@ - (BOOL)directionalPhysicalLogicalFromCurrentDpadPhysical:(uint64_t*)outPhysical
+   NSInteger axisIndex = absX >= absY ? 0 : 1;
+   NSInteger direction = 0;
+   if (axisIndex == 0) {
+-    direction = self.lastMicroGamepadX < 0 ? -1 : 1;
++    direction = xValue < 0 ? -1 : 1;
+   } else {
+     // GCControllerDirectionPad y: +1.0 = up, -1.0 = down.
+-    direction = self.lastMicroGamepadY > 0 ? 1 : -1;
++    direction = yValue > 0 ? 1 : -1;
+   }
+   [self physicalLogicalForAxis:axisIndex direction:direction physical:outPhysical logical:outLogical];
+   return YES;
+ }
+ 
++- (BOOL)directionalPhysicalLogicalFromGamepad:(GCMicroGamepad*)gamepad
++                                     physical:(uint64_t*)outPhysical
++                                      logical:(uint64_t*)outLogical {
++  if (!gamepad) {
++    return NO;
++  }
++  return [self directionalPhysicalLogicalForDpadX:gamepad.dpad.xAxis.value
++                                                y:gamepad.dpad.yAxis.value
++                                         physical:outPhysical
++                                          logical:outLogical];
++}
++
+ - (BOOL)recentlySentDirectionalClick {
+   static const NSTimeInterval kDirectionalClickSuppressSelectWindow = 0.20;
+   NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
+@@ -1072,9 +1072,13 @@ - (BOOL)recentlySentDirectionalClick {
+ }
+ 
+ - (BOOL)handleDirectionalClickFromCurrentDpad {
++  return [self handleDirectionalClickFromGamepad:self.activeMicroGamepad];
++}
++
++- (BOOL)handleDirectionalClickFromGamepad:(GCMicroGamepad*)gamepad {
+   uint64_t physical = 0;
+   uint64_t logical = 0;
+-  if (![self directionalPhysicalLogicalFromCurrentDpadPhysical:&physical logical:&logical]) {
++  if (![self directionalPhysicalLogicalFromGamepad:gamepad physical:&physical logical:&logical]) {
+     return NO;
+   }
+ 
+@@ -1097,10 +1101,6 @@ - (void)updateDpadWithX:(float)xValue y:(float)yValue {
+   static const NSTimeInterval kDirectionalCooldown = 0.12;
+ 
+   NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
+-  self.lastMicroGamepadX = xValue;
+-  self.lastMicroGamepadY = yValue;
+-  self.hasMicroGamepadPosition = YES;
+-  self.lastMicroGamepadTimestamp = now;
+ 
+   float absX = fabsf(xValue);
+   float absY = fabsf(yValue);
+@@ -1225,9 +1225,11 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+ }
+ 
+ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+-  gamepad.reportsAbsoluteDpadValues = true;
+-  gamepad.allowsRotation = true;
++  self.activeMicroGamepad = gamepad;
++  gamepad.reportsAbsoluteDpadValues = YES;
++  gamepad.allowsRotation = NO;
+   __weak FlutterViewController* weakSelf = self;
++  __weak GCMicroGamepad* weakGamepad = gamepad;
+   gamepad.dpad.valueChangedHandler =
+       ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
+         FlutterViewController* strongSelf = weakSelf;
+@@ -1240,10 +1242,11 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+   gamepad.buttonA.pressedChangedHandler =
+       ^(GCControllerButtonInput* _Nonnull button, float value, BOOL pressed) {
+         FlutterViewController* strongSelf = weakSelf;
+-        if (!strongSelf || !pressed) {
++        GCMicroGamepad* strongGamepad = weakGamepad;
++        if (!strongSelf || !strongGamepad || !pressed) {
+           return;
+         }
+-        [strongSelf handleDirectionalClickFromCurrentDpad];
++        [strongSelf handleDirectionalClickFromGamepad:strongGamepad];
+       };
+   if (@available(tvOS 13.0, *)) {
+     gamepad.buttonMenu.pressedChangedHandler =

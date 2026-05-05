@@ -1,7 +1,7 @@
 From b9bc9856d6539eede34153e0dceb19ed5f4bd7e9 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Tue, 5 May 2026 23:13:47 +0200
-Subject: [PATCH 36/36] tvos: distinguish Siri Remote touch and directional
+Subject: [PATCH 36/37] tvos: distinguish Siri Remote touch and directional
  clicks
 
 
