@@ -1,7 +1,7 @@
 From c5ca375880b3ca827fa17aef2a474a16192e97f3 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:03:37 +0200
-Subject: [PATCH 27/33] tvos: add TVOS_BUILD_NOTES.md summarizing build system
+Subject: [PATCH 27/34] tvos: add TVOS_BUILD_NOTES.md summarizing build system
  changes
 
 

@@ -1,0 +1,260 @@
+From f597eae7564bcdd63fc0a986e114d94ca96a2869 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Tue, 5 May 2026 16:56:24 +0200
+Subject: [PATCH 34/34] tvos: fix Siri Remote micro gamepad input
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index d279d8bc..65d58a8c 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -79,13 +79,14 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ // Apple only populates UIPress.key for physical keyboards, so Siri Remote button
+ // presses arrive at handlePressEvent: with key == nil and never reach
+ // HardwareKeyboard.instance. We synthesize FlutterKeyEvents directly via the
+-// engine's embedder key-data channel; this set tracks the synthesized presses
+-// so duplicate paths (UIPress recognizer + GCMicroGamepad dpad threshold) dedupe.
++// engine's embedder key-data channel; this set tracks pressed keys so duplicate
++// paths (UIPress recognizer + GCMicroGamepad buttons) dedupe.
+ @property(nonatomic, strong) NSMutableSet<NSNumber*>* synthesizedPressedKeys;
+-// GCMicroGamepad dpad analog → discrete arrow-key state. -1/0/+1 per axis.
+-// X axis: -1 = arrowLeft, +1 = arrowRight. Y axis: -1 = arrowDown, +1 = arrowUp.
+-@property(nonatomic, assign) NSInteger dpadXDirection;
+-@property(nonatomic, assign) NSInteger dpadYDirection;
++// GCMicroGamepad dpad analog -> one-shot arrow-key state. axis: 0 = horizontal,
++// 1 = vertical. direction: -1/+1. A 0 direction means no active swipe bucket.
++@property(nonatomic, assign) NSInteger dpadAxisIndex;
++@property(nonatomic, assign) NSInteger dpadDirection;
++@property(nonatomic, assign) NSTimeInterval lastDpadKeyTimestamp;
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
+ #endif
+@@ -880,8 +881,8 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ 
+ // Dispatches a FlutterKeyEvent through the engine's embedder key-data channel,
+ // which lands on Flutter's HardwareKeyboard.instance. Dedupes against
+-// |synthesizedPressedKeys| so concurrent paths (UIPress recognizer + dpad
+-// analog threshold) for the same logical key emit only one Down/Up pair.
++// |synthesizedPressedKeys| so concurrent paths for the same logical key emit
++// only one Down/Up pair.
+ - (void)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+                              physical:(uint64_t)physical
+                               logical:(uint64_t)logical {
+@@ -906,7 +907,10 @@ - (void)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+         .physical = physical,
+         .logical = logical,
+         .character = nullptr,
+-        .synthesized = false,
++        // Siri Remote / GCMicroGamepad events have no corresponding raw
++        // flutter/keyevent message. Mark them synthesized so Flutter dispatches
++        // them immediately instead of waiting for the legacy channel.
++        .synthesized = true,
+         .device_type = kFlutterKeyEventDeviceTypeKeyboard,
+     };
+     [self.engine sendKeyEvent:flutterEvent callback:nullptr userData:nullptr];
+@@ -923,27 +927,27 @@ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+   switch (pressType) {
+     case UIPressTypeLeftArrow:
+       *outPhysical = 0x00070050ULL;
+-      *outLogical = 0x100000302ULL;
++      *outLogical = 0x00100000302ULL;
+       return YES;
+     case UIPressTypeRightArrow:
+       *outPhysical = 0x0007004FULL;
+-      *outLogical = 0x100000303ULL;
++      *outLogical = 0x00100000303ULL;
+       return YES;
+     case UIPressTypeUpArrow:
+       *outPhysical = 0x00070052ULL;
+-      *outLogical = 0x100000301ULL;
++      *outLogical = 0x00100000304ULL;
+       return YES;
+     case UIPressTypeDownArrow:
+       *outPhysical = 0x00070051ULL;
+-      *outLogical = 0x100000300ULL;
++      *outLogical = 0x00100000301ULL;
+       return YES;
+     case UIPressTypeSelect:
+-      *outPhysical = 0x00070028ULL;  // Keyboard Return
+-      *outLogical = 0x0000000DULL;   // LogicalKeyboardKey.enter
++      *outPhysical = 0x00070077ULL;  // PhysicalKeyboardKey.select
++      *outLogical = 0x0010000050CULL;  // LogicalKeyboardKey.select
+       return YES;
+     case UIPressTypeMenu:
+       *outPhysical = 0x00070029ULL;  // Keyboard ESCAPE
+-      *outLogical = 0x0000001BULL;   // LogicalKeyboardKey.escape
++      *outLogical = 0x0010000001BULL;  // LogicalKeyboardKey.escape
+       return YES;
+     default:
+       return NO;
+@@ -973,6 +977,11 @@ - (void)maybeSynthesizeForPress:(UIPress*)press
+   }
+ }
+ 
++- (void)sendSynthesizedKeyPressPhysical:(uint64_t)physical logical:(uint64_t)logical {
++  [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown physical:physical logical:logical];
++  [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp physical:physical logical:logical];
++}
++
+ // USB HID physical / Flutter logical key codes for arrow keys, indexed by
+ // (axis, direction). axis: 0 = horizontal, 1 = vertical.
+ // direction: -1 / +1 (0 is invalid here).
+@@ -983,69 +992,68 @@ - (void)physicalLogicalForAxis:(NSInteger)axisIndex
+   if (axisIndex == 0) {
+     if (direction < 0) {
+       *outPhysical = 0x00070050ULL;  // Keyboard LeftArrow
+-      *outLogical = 0x100000302ULL;  // LogicalKeyboardKey.arrowLeft
++      *outLogical = 0x00100000302ULL;  // LogicalKeyboardKey.arrowLeft
+     } else {
+       *outPhysical = 0x0007004FULL;  // Keyboard RightArrow
+-      *outLogical = 0x100000303ULL;  // LogicalKeyboardKey.arrowRight
++      *outLogical = 0x00100000303ULL;  // LogicalKeyboardKey.arrowRight
+     }
+   } else {
+     // GCControllerDirectionPad y: +1.0 = up, -1.0 = down.
+     if (direction > 0) {
+       *outPhysical = 0x00070052ULL;  // Keyboard UpArrow
+-      *outLogical = 0x100000301ULL;  // LogicalKeyboardKey.arrowUp
++      *outLogical = 0x00100000304ULL;  // LogicalKeyboardKey.arrowUp
+     } else {
+       *outPhysical = 0x00070051ULL;  // Keyboard DownArrow
+-      *outLogical = 0x100000300ULL;  // LogicalKeyboardKey.arrowDown
++      *outLogical = 0x00100000301ULL;  // LogicalKeyboardKey.arrowDown
+     }
+   }
+ }
+ 
+-// Converts a continuous dpad axis value (-1.0..+1.0) into Down/Up arrow-key
+-// transitions with hysteresis. Enter at |value| > 0.6, exit at |value| < 0.3.
+-// Mirrors the click-pad press path so touch-surface swipes drive focus too.
+-- (void)updateDpadAxis:(NSInteger)axisIndex value:(float)value {
++// Converts GCMicroGamepad's touch-surface dpad values into one-shot arrow-key
++// presses. The old Siri Remote reports touchpad movement through this profile;
++// emitting held key-downs here makes controls such as PIN spinners run away.
++- (void)updateDpadWithX:(float)xValue y:(float)yValue {
+   static const float kEnterThreshold = 0.6f;
+-  static const float kExitThreshold = 0.3f;
+-  NSInteger currentDirection =
+-      (axisIndex == 0) ? self.dpadXDirection : self.dpadYDirection;
+-  NSInteger newDirection = currentDirection;
+-  if (currentDirection == 0) {
+-    if (value > kEnterThreshold) {
+-      newDirection = 1;
+-    } else if (value < -kEnterThreshold) {
+-      newDirection = -1;
+-    }
+-  } else if (fabsf(value) < kExitThreshold) {
+-    newDirection = 0;
+-  }
+-  if (newDirection == currentDirection) {
++  static const float kExitThreshold = 0.25f;
++  static const NSTimeInterval kDirectionalCooldown = 0.12;
++
++  float absX = fabsf(xValue);
++  float absY = fabsf(yValue);
++  if (absX < kExitThreshold && absY < kExitThreshold) {
++    self.dpadDirection = 0;
+     return;
+   }
+-  uint64_t physical = 0;
+-  uint64_t logical = 0;
+-  if (currentDirection != 0) {
+-    [self physicalLogicalForAxis:axisIndex
+-                       direction:currentDirection
+-                        physical:&physical
+-                         logical:&logical];
+-    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp
+-                               physical:physical
+-                                logical:logical];
+-  }
+-  if (newDirection != 0) {
+-    [self physicalLogicalForAxis:axisIndex
+-                       direction:newDirection
+-                        physical:&physical
+-                         logical:&logical];
+-    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
+-                               physical:physical
+-                                logical:logical];
++
++  if (absX < kEnterThreshold && absY < kEnterThreshold) {
++    return;
+   }
++
++  NSInteger axisIndex = absX >= absY ? 0 : 1;
++  NSInteger direction = 0;
+   if (axisIndex == 0) {
+-    self.dpadXDirection = newDirection;
++    direction = xValue < 0 ? -1 : 1;
+   } else {
+-    self.dpadYDirection = newDirection;
++    // GCControllerDirectionPad y: +1.0 = up, -1.0 = down.
++    direction = yValue > 0 ? 1 : -1;
++  }
++
++  if (self.dpadDirection != 0 && self.dpadAxisIndex == axisIndex &&
++      self.dpadDirection == direction) {
++    return;
++  }
++
++  NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
++  if (now - self.lastDpadKeyTimestamp < kDirectionalCooldown) {
++    return;
+   }
++
++  uint64_t physical = 0;
++  uint64_t logical = 0;
++  [self physicalLogicalForAxis:axisIndex direction:direction physical:&physical logical:&logical];
++  [self sendSynthesizedKeyPressPhysical:physical logical:logical];
++  self.dpadAxisIndex = axisIndex;
++  self.dpadDirection = direction;
++  self.lastDpadKeyTimestamp = now;
+ }
+ 
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+@@ -1124,7 +1132,8 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+ }
+ 
+ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+-  gamepad.reportsAbsoluteDpadValues = true;
++  gamepad.reportsAbsoluteDpadValues = false;
++  gamepad.allowsRotation = true;
+   __weak FlutterViewController* weakSelf = self;
+   gamepad.dpad.valueChangedHandler =
+       ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
+@@ -1133,11 +1142,32 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+           return;
+         }
+         [strongSelf sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
+-        // Translate dpad analog → discrete arrow keys so finger swipes on the
+-        // 2nd/3rd-gen Siri Remote touch surface drive Flutter's focus traversal.
+-        [strongSelf updateDpadAxis:0 value:xValue];
+-        [strongSelf updateDpadAxis:1 value:yValue];
++        [strongSelf updateDpadWithX:xValue y:yValue];
+       };
++  gamepad.buttonA.pressedChangedHandler =
++      ^(GCControllerButtonInput* _Nonnull button, float value, BOOL pressed) {
++        FlutterViewController* strongSelf = weakSelf;
++        if (!strongSelf) {
++          return;
++        }
++        [strongSelf sendSynthesizedKeyEventOfType:pressed ? kFlutterKeyEventTypeDown
++                                                   : kFlutterKeyEventTypeUp
++                                       physical:0x00070077ULL
++                                        logical:0x0010000050CULL];
++      };
++  if (@available(tvOS 13.0, *)) {
++    gamepad.buttonMenu.pressedChangedHandler =
++        ^(GCControllerButtonInput* _Nonnull button, float value, BOOL pressed) {
++          FlutterViewController* strongSelf = weakSelf;
++          if (!strongSelf) {
++            return;
++          }
++          [strongSelf sendSynthesizedKeyEventOfType:pressed ? kFlutterKeyEventTypeDown
++                                                     : kFlutterKeyEventTypeUp
++                                         physical:0x00070029ULL
++                                          logical:0x0010000001BULL];
++        };
++  }
+ }
+ 
+ - (void)setupControllers {  // TODO: dangerous, multiple registrations can happen!

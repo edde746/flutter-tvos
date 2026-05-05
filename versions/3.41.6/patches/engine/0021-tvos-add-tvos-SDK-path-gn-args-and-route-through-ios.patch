@@ -1,7 +1,7 @@
 From 897dc77ac9c016a3e447b1fe109b00b54a271465 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:58:24 +0200
-Subject: [PATCH 21/33] tvos: add tvos SDK path gn args and route through
+Subject: [PATCH 21/34] tvos: add tvos SDK path gn args and route through
  ios_sdk_path
 
 
