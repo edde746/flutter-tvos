@@ -1,0 +1,196 @@
+From 9e2077bd614edfe56688d5b9f67a984931c3f5f7 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Mon, 11 May 2026 17:25:19 +0200
+Subject: [PATCH 34/34] tvos: route Siri Remote dpad clicks through embedder
+ press path
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Removes the analog GCMicroGamepad.dpad hysteresis arrow-key synthesis
+in setupTouchesWithGamepad — it fired spurious "opposite direction"
+events as the finger naturally pivots through the touch surface
+during a lift, and silently broke fingernail clicks (which produce
+no analog signal at all).
+
+Replacement: directional arrow events flow exclusively through the
+pressesBegan/Ended overrides → maybeSynthesizeForPress →
+sendSynthesizedKeyEventOfType (the embedder key-data channel). Apple
+fires UIPressType{Left,Right,Up,Down}Arrow for ring clicks regardless
+of skin contact, so fingernail input now works. The lift artifact is
+gone because the analog path no longer synthesizes anything.
+
+Also drops the legacy flutter/keyevent macOS-keymap arrow taps and
+their UILongPressGestureRecognizers — the embedder path is the
+canonical Flutter route and competing recognizers on the same view
+caused subtle double-fires.
+
+The dpad valueChangedHandler still forwards loc events on the
+gamepadtouchevent channel so app-side swipe detection keeps working.
+Select/Menu/PlayPause/PageUp/PageDown recognizers are unchanged.
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index d279d8bc..2d4a0e7a 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -80,12 +80,8 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ // presses arrive at handlePressEvent: with key == nil and never reach
+ // HardwareKeyboard.instance. We synthesize FlutterKeyEvents directly via the
+ // engine's embedder key-data channel; this set tracks the synthesized presses
+-// so duplicate paths (UIPress recognizer + GCMicroGamepad dpad threshold) dedupe.
++// so duplicate down/up pairs from the press lifecycle dedupe correctly.
+ @property(nonatomic, strong) NSMutableSet<NSNumber*>* synthesizedPressedKeys;
+-// GCMicroGamepad dpad analog → discrete arrow-key state. -1/0/+1 per axis.
+-// X axis: -1 = arrowLeft, +1 = arrowRight. Y axis: -1 = arrowDown, +1 = arrowUp.
+-@property(nonatomic, assign) NSInteger dpadXDirection;
+-@property(nonatomic, assign) NSInteger dpadYDirection;
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
+ #endif
+@@ -973,81 +969,6 @@ - (void)maybeSynthesizeForPress:(UIPress*)press
+   }
+ }
+ 
+-// USB HID physical / Flutter logical key codes for arrow keys, indexed by
+-// (axis, direction). axis: 0 = horizontal, 1 = vertical.
+-// direction: -1 / +1 (0 is invalid here).
+-- (void)physicalLogicalForAxis:(NSInteger)axisIndex
+-                     direction:(NSInteger)direction
+-                      physical:(uint64_t*)outPhysical
+-                       logical:(uint64_t*)outLogical {
+-  if (axisIndex == 0) {
+-    if (direction < 0) {
+-      *outPhysical = 0x00070050ULL;  // Keyboard LeftArrow
+-      *outLogical = 0x100000302ULL;  // LogicalKeyboardKey.arrowLeft
+-    } else {
+-      *outPhysical = 0x0007004FULL;  // Keyboard RightArrow
+-      *outLogical = 0x100000303ULL;  // LogicalKeyboardKey.arrowRight
+-    }
+-  } else {
+-    // GCControllerDirectionPad y: +1.0 = up, -1.0 = down.
+-    if (direction > 0) {
+-      *outPhysical = 0x00070052ULL;  // Keyboard UpArrow
+-      *outLogical = 0x100000301ULL;  // LogicalKeyboardKey.arrowUp
+-    } else {
+-      *outPhysical = 0x00070051ULL;  // Keyboard DownArrow
+-      *outLogical = 0x100000300ULL;  // LogicalKeyboardKey.arrowDown
+-    }
+-  }
+-}
+-
+-// Converts a continuous dpad axis value (-1.0..+1.0) into Down/Up arrow-key
+-// transitions with hysteresis. Enter at |value| > 0.6, exit at |value| < 0.3.
+-// Mirrors the click-pad press path so touch-surface swipes drive focus too.
+-- (void)updateDpadAxis:(NSInteger)axisIndex value:(float)value {
+-  static const float kEnterThreshold = 0.6f;
+-  static const float kExitThreshold = 0.3f;
+-  NSInteger currentDirection =
+-      (axisIndex == 0) ? self.dpadXDirection : self.dpadYDirection;
+-  NSInteger newDirection = currentDirection;
+-  if (currentDirection == 0) {
+-    if (value > kEnterThreshold) {
+-      newDirection = 1;
+-    } else if (value < -kEnterThreshold) {
+-      newDirection = -1;
+-    }
+-  } else if (fabsf(value) < kExitThreshold) {
+-    newDirection = 0;
+-  }
+-  if (newDirection == currentDirection) {
+-    return;
+-  }
+-  uint64_t physical = 0;
+-  uint64_t logical = 0;
+-  if (currentDirection != 0) {
+-    [self physicalLogicalForAxis:axisIndex
+-                       direction:currentDirection
+-                        physical:&physical
+-                         logical:&logical];
+-    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp
+-                               physical:physical
+-                                logical:logical];
+-  }
+-  if (newDirection != 0) {
+-    [self physicalLogicalForAxis:axisIndex
+-                       direction:newDirection
+-                        physical:&physical
+-                         logical:&logical];
+-    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
+-                               physical:physical
+-                                logical:logical];
+-  }
+-  if (axisIndex == 0) {
+-    self.dpadXDirection = newDirection;
+-  } else {
+-    self.dpadYDirection = newDirection;
+-  }
+-}
+-
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -1066,18 +987,6 @@ - (void)handleTap:(UITapGestureRecognizer*)recognizer
+     [self sendTap:key withType:keyMapType ofType:@"keyup"];
+   }
+ }
+-- (void)handleDownTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleTap:recognizer withType:@"macos" keyType:0x7D];
+-}
+-- (void)handleUpTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleTap:recognizer withType:@"macos" keyType:0x7E];
+-}
+-- (void)handleLeftTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleTap:recognizer withType:@"macos" keyType:0x7B];
+-}
+-- (void)handleRightTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleTap:recognizer withType:@"macos" keyType:0x7C];
+-}
+ - (void)handleCenterTap:(UITapGestureRecognizer*)recognizer {
+   // Send a DPAD_CENTER key event so Flutter's focus/Shortcuts systems can
+   // activate the focused widget, in addition to the LibertyGlobal-style
+@@ -1126,6 +1035,15 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+   gamepad.reportsAbsoluteDpadValues = true;
+   __weak FlutterViewController* weakSelf = self;
++  // Forward raw touch-surface position to the gamepadtouchevent channel so
++  // app-side swipe detection (e.g. Plezy's AppleTvRemoteTouchService) can
++  // resolve a swipe gesture in Dart. We deliberately do NOT synthesize arrow
++  // keys from analog dpad values here — those would fire spurious "opposite
++  // direction" events as the finger naturally pivots through the touch
++  // surface during a lift. Directional clicks come from the UIPress recognizer
++  // path (pressesBegan → maybeSynthesizeForPress), which fires on actual
++  // physical edge clicks regardless of skin contact (so fingernail clicks
++  // work too).
+   gamepad.dpad.valueChangedHandler =
+       ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
+         FlutterViewController* strongSelf = weakSelf;
+@@ -1133,10 +1051,6 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+           return;
+         }
+         [strongSelf sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
+-        // Translate dpad analog → discrete arrow keys so finger swipes on the
+-        // 2nd/3rd-gen Siri Remote touch surface drive Flutter's focus traversal.
+-        [strongSelf updateDpadAxis:0 value:xValue];
+-        [strongSelf updateDpadAxis:1 value:yValue];
+       };
+ }
+ 
+@@ -1229,10 +1143,14 @@ - (void)viewDidLoad {
+   TRACE_EVENT0("flutter", "viewDidLoad");
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-  [self createRecognizerFor:UIPressTypeUpArrow action:@selector(handleUpTap:)];
+-  [self createRecognizerFor:UIPressTypeDownArrow action:@selector(handleDownTap:)];
+-  [self createRecognizerFor:UIPressTypeLeftArrow action:@selector(handleLeftTap:)];
+-  [self createRecognizerFor:UIPressTypeRightArrow action:@selector(handleRightTap:)];
++  // Arrow press types (Up/Down/Left/Right) intentionally have NO gesture
++  // recognizer here — they're handled exclusively by the pressesBegan/Ended
++  // overrides which call maybeSynthesizeForPress → sendSynthesizedKeyEventOfType
++  // (the embedder key-data channel that flows into HardwareKeyboard cleanly).
++  // The previous handleLeftTap/etc. emitted via the legacy flutter/keyevent
++  // macOS-keymap channel which doesn't surface on modern HardwareKeyboard
++  // reliably, and competing recognizers on the same view caused subtle
++  // double-fire and timing races.
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+   [self createRecognizerFor:UIPressTypeSelect action:@selector(handleCenterTap:)];
+   [self createRecognizerFor:UIPressTypePlayPause action:@selector(handlePlayPauseTap:)];
