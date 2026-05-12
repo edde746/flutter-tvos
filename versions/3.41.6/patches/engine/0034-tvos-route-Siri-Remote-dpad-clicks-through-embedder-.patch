@@ -1,4 +1,4 @@
-From 2154a951aeb6e788bd8a509962129dbd47502a82 Mon Sep 17 00:00:00 2001
+From 6491fae8482fbfeb5fc8e5ce8940dce1fafa5f7a Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Mon, 11 May 2026 17:25:19 +0200
 Subject: [PATCH 34/34] tvos: route Siri Remote dpad clicks through embedder
@@ -30,7 +30,7 @@ gamepadtouchevent channel so app-side swipe detection keeps working.
 Select/Menu/PlayPause/PageUp/PageDown recognizers are unchanged.
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
-index d279d8bc..f356f5b6 100644
+index d279d8bc..3be8248d 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 @@ -80,12 +80,8 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
@@ -61,6 +61,15 @@ index d279d8bc..f356f5b6 100644
        return YES;
      case UIPressTypeSelect:
        *outPhysical = 0x00070028ULL;  // Keyboard Return
+@@ -943,7 +939,7 @@ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+       return YES;
+     case UIPressTypeMenu:
+       *outPhysical = 0x00070029ULL;  // Keyboard ESCAPE
+-      *outLogical = 0x0000001BULL;   // LogicalKeyboardKey.escape
++      *outLogical = 0x10000001BULL;  // LogicalKeyboardKey.escape
+       return YES;
+     default:
+       return NO;
 @@ -973,81 +969,6 @@ - (void)maybeSynthesizeForPress:(UIPress*)press
    }
  }
@@ -162,7 +171,41 @@ index d279d8bc..f356f5b6 100644
  - (void)handleCenterTap:(UITapGestureRecognizer*)recognizer {
    // Send a DPAD_CENTER key event so Flutter's focus/Shortcuts systems can
    // activate the focused widget, in addition to the LibertyGlobal-style
-@@ -1126,6 +1035,15 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+@@ -1098,6 +1007,33 @@ - (void)handlePlayPauseTap:(UITapGestureRecognizer*)recognizer {
+ - (void)handleMenuTap:(UITapGestureRecognizer*)recognizer {
+   // pop route should be triggered on UI, to have correct behavior
+   [self handleTap:recognizer withType:@"android" keyType:0x04];
++  // Fire LogicalKeyboardKey.escape through the embedder/HardwareKeyboard
++  // path so Focus/Shortcuts/Navigator see a real key event — the legacy
++  // flutter/keyevent channel above is a no-op on modern Flutter.
++  //
++  // Menu's gesture lifecycle on tvOS is unreliable: tvOS reserves
++  // long-press-Menu for "go home," and the OS frequently delays or
++  // omits the recognizer's StateEnded/Cancelled transition for the
++  // *release* of a Menu tap until another press arrives to kick it
++  // (observed gap: >8s between Began and Ended). Waiting on Ended/
++  // Cancelled to emit keyup leaves the previous keydown's physical key
++  // pinned in synthesizedPressedKeys, which then dedup-swallows the
++  // following press's keydown.
++  //
++  // Since Apple owns Menu's long-press semantic anyway and apps cannot
++  // distinguish hold from tap on Menu, treat every Menu recognition as
++  // an atomic tap: emit keydown + keyup together on StateBegan and stop
++  // tracking lifecycle from there.
++  if (@available(tvOS 13.4, *)) {
++    if (recognizer.state == UIGestureRecognizerStateBegan) {
++      [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
++                                physical:0x00070029ULL  // Keyboard ESCAPE
++                                 logical:0x10000001BULL]; // LogicalKeyboardKey.escape
++      [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp
++                                physical:0x00070029ULL
++                                 logical:0x10000001BULL];
++    }
++  }
+ }
+ - (void)handlePageUpTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(14.3)) {
+   [self handleTap:recognizer withType:@"android" keyType:0xA6];
+@@ -1126,6 +1062,15 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
  - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
    gamepad.reportsAbsoluteDpadValues = true;
    __weak FlutterViewController* weakSelf = self;
@@ -178,7 +221,7 @@ index d279d8bc..f356f5b6 100644
    gamepad.dpad.valueChangedHandler =
        ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
          FlutterViewController* strongSelf = weakSelf;
-@@ -1133,10 +1051,6 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+@@ -1133,10 +1078,6 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
            return;
          }
          [strongSelf sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
@@ -189,7 +232,7 @@ index d279d8bc..f356f5b6 100644
        };
  }
  
-@@ -1229,10 +1143,14 @@ - (void)viewDidLoad {
+@@ -1229,10 +1170,14 @@ - (void)viewDidLoad {
    TRACE_EVENT0("flutter", "viewDidLoad");
  
  #if defined(TARGET_OS_TV) && TARGET_OS_TV
