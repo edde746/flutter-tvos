@@ -1,4 +1,4 @@
-From 9e2077bd614edfe56688d5b9f67a984931c3f5f7 Mon Sep 17 00:00:00 2001
+From 2154a951aeb6e788bd8a509962129dbd47502a82 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Mon, 11 May 2026 17:25:19 +0200
 Subject: [PATCH 34/34] tvos: route Siri Remote dpad clicks through embedder
@@ -30,7 +30,7 @@ gamepadtouchevent channel so app-side swipe detection keeps working.
 Select/Menu/PlayPause/PageUp/PageDown recognizers are unchanged.
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
-index d279d8bc..2d4a0e7a 100644
+index d279d8bc..f356f5b6 100644
 --- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 +++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
 @@ -80,12 +80,8 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
@@ -47,6 +47,20 @@ index d279d8bc..2d4a0e7a 100644
  #else
  @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
  #endif
+@@ -931,11 +927,11 @@ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+       return YES;
+     case UIPressTypeUpArrow:
+       *outPhysical = 0x00070052ULL;
+-      *outLogical = 0x100000301ULL;
++      *outLogical = 0x100000304ULL;
+       return YES;
+     case UIPressTypeDownArrow:
+       *outPhysical = 0x00070051ULL;
+-      *outLogical = 0x100000300ULL;
++      *outLogical = 0x100000301ULL;
+       return YES;
+     case UIPressTypeSelect:
+       *outPhysical = 0x00070028ULL;  // Keyboard Return
 @@ -973,81 +969,6 @@ - (void)maybeSynthesizeForPress:(UIPress*)press
    }
  }
