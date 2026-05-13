@@ -1,7 +1,7 @@
 From 6491fae8482fbfeb5fc8e5ce8940dce1fafa5f7a Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Mon, 11 May 2026 17:25:19 +0200
-Subject: [PATCH 34/34] tvos: route Siri Remote dpad clicks through embedder
+Subject: [PATCH 34/35] tvos: route Siri Remote dpad clicks through embedder
  press path
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
