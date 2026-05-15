@@ -1,7 +1,7 @@
 From 306d00bbb1132179c335bde03d21d40adc72e03f Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Sun, 3 May 2026 21:03:41 +0200
-Subject: [PATCH 33/35] tvos: synthesize HardwareKeyboard arrow/select/menu
+Subject: [PATCH 33/36] tvos: synthesize HardwareKeyboard arrow/select/menu
  events from Siri Remote
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
