@@ -1,0 +1,253 @@
+From fa7a8e622da62cb432d91864d7c43358bf154cc4 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:33:40 +0200
+Subject: [PATCH 03/39] tvos: port Impeller Metal backend and tools
+
+
+diff --git a/engine/src/flutter/impeller/compiler/switches.cc b/engine/src/flutter/impeller/compiler/switches.cc
+index 13369bc7..152a82e0 100644
+--- a/engine/src/flutter/impeller/compiler/switches.cc
++++ b/engine/src/flutter/impeller/compiler/switches.cc
+@@ -20,6 +20,7 @@ namespace compiler {
+ static const std::map<std::string, TargetPlatform> kKnownPlatforms = {
+     {"metal-desktop", TargetPlatform::kMetalDesktop},
+     {"metal-ios", TargetPlatform::kMetalIOS},
++    {"metal-tvos", TargetPlatform::kMetalIOS},
+     {"vulkan", TargetPlatform::kVulkan},
+     {"opengl-es", TargetPlatform::kOpenGLES},
+     {"opengl-desktop", TargetPlatform::kOpenGLDesktop},
+diff --git a/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm
+index 0b4f846d..9a711a55 100644
+--- a/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm
++++ b/engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm
+@@ -19,7 +19,11 @@
+ static bool DeviceSupportsDeviceTransientTargets(id<MTLDevice> device) {
+   // Refer to the "Memoryless render targets" feature in the table below:
+   // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   return [device supportsFamily:MTLGPUFamilyApple2];
++#else
++  return [device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily1_v1];
++#endif
+ }
+ 
+ ISize DeviceMaxTextureSizeSupported(id<MTLDevice> device) {
+@@ -29,14 +33,22 @@ ISize DeviceMaxTextureSizeSupported(id<MTLDevice> device) {
+   // According to the feature set table, there are two supported max sizes :
+   // 16384 and 8192 for devices flutter support. The former is used on macs and
+   // latest ios devices. The latter is used on old ios devices.
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if ([device supportsFamily:MTLGPUFamilyApple3] ||
+       [device supportsFamily:MTLGPUFamilyMacCatalyst1] ||
+       [device supportsFamily:MTLGPUFamilyMac1]) {
+     return {16384, 16384};
+   }
+   return {8192, 8192};
++#else
++  if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily2_v1]) {
++    return {16384, 16384};
++  }
++  return {8192, 8192};
++#endif
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ static bool SupportsLossyTextureCompression(id<MTLDevice> device) {
+ #ifdef FML_OS_IOS_SIMULATOR
+   return false;
+@@ -44,6 +56,7 @@ static bool SupportsLossyTextureCompression(id<MTLDevice> device) {
+   return [device supportsFamily:MTLGPUFamilyApple8];
+ #endif
+ }
++#endif
+ 
+ void DebugAllocatorStats::Increment(size_t size) {
+   size_.fetch_add(size, std::memory_order_relaxed);
+@@ -64,7 +77,12 @@ static bool SupportsLossyTextureCompression(id<MTLDevice> device) {
+   }
+ 
+   supports_memoryless_targets_ = DeviceSupportsDeviceTransientTargets(device_);
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   supports_uma_ = device_.hasUnifiedMemory;
++#else
++  // tvOS: match LibertyGlobal 3.27.4 behavior: treat UMA as unavailable.
++  supports_uma_ = false;
++#endif
+   max_texture_supported_ = DeviceMaxTextureSizeSupported(device_);
+ 
+   is_valid_ = true;
+@@ -175,12 +193,14 @@ static MTLStorageMode ToMTLStorageMode(StorageMode mode,
+   mtl_texture_desc.storageMode = ToMTLStorageMode(
+       desc.storage_mode, supports_memoryless_targets_, supports_uma_);
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (@available(macOS 12.5, ios 15.0, *)) {
+     if (desc.compression_type == CompressionType::kLossy &&
+         SupportsLossyTextureCompression(device_)) {
+       mtl_texture_desc.compressionType = MTLTextureCompressionTypeLossy;
+     }
+   }
++#endif
+ 
+ #ifdef IMPELLER_DEBUG
+   if (desc.storage_mode != StorageMode::kDeviceTransient) {
+diff --git a/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm
+index 8b6e5a3e..7b34d14e 100644
+--- a/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm
++++ b/engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm
+@@ -14,6 +14,8 @@
+ 
+ namespace impeller {
+ 
++// NOLINTEND(readability-identifier-naming)
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ API_AVAILABLE(ios(14.0), macos(11.0))
+ static NSString* MTLCommandEncoderErrorStateToString(
+     MTLCommandEncoderErrorState state) {
+@@ -31,6 +33,9 @@
+   }
+   return @"unknown";
+ }
++#endif
++
++// NOLINTEND(readability-identifier-naming)
+ 
+ static NSString* MTLCommandBufferErrorToString(MTLCommandBufferError code) {
+   switch (code) {
+@@ -85,6 +90,7 @@ static bool LogMTLCommandBufferErrorIfPresent(id<MTLCommandBuffer> buffer) {
+            << std::endl;
+   }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (@available(iOS 14.0, macOS 11.0, *)) {
+     NSArray<id<MTLCommandBufferEncoderInfo>>* infos =
+         buffer.error.userInfo[MTLCommandBufferEncoderInfoErrorKey];
+@@ -108,6 +114,7 @@ static bool LogMTLCommandBufferErrorIfPresent(id<MTLCommandBuffer> buffer) {
+       }
+     }
+   }
++#endif
+ 
+   stream << "<<<<<<<";
+   VALIDATION_LOG << stream.str();
+@@ -115,7 +122,7 @@ static bool LogMTLCommandBufferErrorIfPresent(id<MTLCommandBuffer> buffer) {
+ }
+ 
+ static id<MTLCommandBuffer> CreateCommandBuffer(id<MTLCommandQueue> queue) {
+-#ifndef FLUTTER_RELEASE
++#if !defined(FLUTTER_RELEASE) && !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   if (@available(iOS 14.0, macOS 11.0, *)) {
+     auto desc = [[MTLCommandBufferDescriptor alloc] init];
+     // Degrades CPU performance slightly but is well worth the cost for typical
+@@ -123,7 +130,7 @@ static bool LogMTLCommandBufferErrorIfPresent(id<MTLCommandBuffer> buffer) {
+     desc.errorOptions = MTLCommandBufferErrorOptionEncoderExecutionStatus;
+     return [queue commandBufferWithDescriptor:desc];
+   }
+-#endif  // FLUTTER_RELEASE
++#endif  // !defined(FLUTTER_RELEASE) && !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   return [queue commandBuffer];
+ }
+ 
+diff --git a/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm
+index c842a5ca..eaa77fe6 100644
+--- a/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm
++++ b/engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm
+@@ -29,15 +29,23 @@ static bool DeviceSupportsFramebufferFetch(id<MTLDevice> device) {
+   // According to
+   // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf, Apple2
+   // corresponds to iOS GPU family 2, which supports A8 devices.
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   return [device supportsFamily:MTLGPUFamilyApple2];
++#else
++  return [device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily1_v1];
++#endif
+ #endif  // FML_OS_IOS_SIMULATOR
+ }
+ 
+ static bool DeviceSupportsComputeSubgroups(id<MTLDevice> device) {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   // Refer to the "SIMD-scoped reduction operations" feature in the table
+   // below: https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
+   return [device supportsFamily:MTLGPUFamilyApple7] ||
+          [device supportsFamily:MTLGPUFamilyMac2];
++#else
++  return false;
++#endif
+ }
+ 
+ // See "Extended Range and wide color pixel formats" in the Metal Feature Set
+@@ -46,7 +54,11 @@ static bool DeviceSupportsComputeSubgroups(id<MTLDevice> device) {
+ // This includes all iOS devices with A9+ chip and Apple Silicon Macs (M1+).
+ // Intel Macs (Mac2 family) do not support wide gamut.
+ static bool DeviceSupportsExtendedRangeFormats(id<MTLDevice> device) {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   return [device supportsFamily:MTLGPUFamilyApple3];
++#else
++  return false;
++#endif
+ }
+ 
+ static std::unique_ptr<Capabilities> InferMetalCapabilities(
+diff --git a/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm b/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm
+index 65caef79..8afd0d52 100644
+--- a/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm
++++ b/engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm
+@@ -31,9 +31,11 @@
+   desc.sAddressMode = ToMTLSamplerAddressMode(descriptor.width_address_mode);
+   desc.tAddressMode = ToMTLSamplerAddressMode(descriptor.height_address_mode);
+   desc.rAddressMode = ToMTLSamplerAddressMode(descriptor.depth_address_mode);
+-  if (@available(iOS 14.0, macos 10.12, *)) {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++  if (@available(iOS 14.0, tvos 16.0, macos 10.12, *)) {
+     desc.borderColor = MTLSamplerBorderColorTransparentBlack;
+   }
++#endif
+ #ifdef IMPELLER_DEBUG
+   if (!descriptor.label.empty()) {
+     desc.label = @(descriptor.label.data());
+diff --git a/engine/src/flutter/impeller/tools/metal_library.py b/engine/src/flutter/impeller/tools/metal_library.py
+index 8d3c3a86..6c139b45 100644
+--- a/engine/src/flutter/impeller/tools/metal_library.py
++++ b/engine/src/flutter/impeller/tools/metal_library.py
+@@ -59,11 +59,11 @@ def main():
+     ]
+   elif args.platform == 'ios':
+     command += [
+-        'iphoneos',
++        'appletvos',
+     ]
+   elif args.platform == 'ios-simulator':
+     command += [
+-        'iphonesimulator',
++        'appletvsimulator',
+     ]
+   else:
+     raise 'Unknown target platform'
+@@ -97,12 +97,12 @@ def main():
+   elif args.platform == 'ios':
+     command += [
+         '--std=ios-metal%s' % args.metal_version,
+-        '-mios-version-min=11.0',
++        '-mtvos-version-min=13.0',
+     ]
+   elif args.platform == 'ios-simulator':
+     command += [
+         '--std=ios-metal%s' % args.metal_version,
+-        '-miphonesimulator-version-min=11.0',
++        '-mappletvsimulator-version-min=13.0',
+     ]
+   else:
+     raise 'Unknown target platform'
+diff --git a/engine/src/flutter/impeller/tools/shaders_mtl.gni b/engine/src/flutter/impeller/tools/shaders_mtl.gni
+index 0364d8ca..2e8c8962 100644
+--- a/engine/src/flutter/impeller/tools/shaders_mtl.gni
++++ b/engine/src/flutter/impeller/tools/shaders_mtl.gni
+@@ -36,7 +36,7 @@ template("impeller_shaders_metal") {
+     shader_target_flags = []
+     defines = [ "IMPELLER_TARGET_METAL" ]
+     if (is_ios) {
+-      shader_target_flags += [ "--metal-ios" ]
++      shader_target_flags += [ "--metal-tvos" ]
+       defines += [ "IMPELLER_TARGET_METAL_IOS" ]
+     } else if (is_mac) {
+       shader_target_flags = [ "--metal-desktop" ]

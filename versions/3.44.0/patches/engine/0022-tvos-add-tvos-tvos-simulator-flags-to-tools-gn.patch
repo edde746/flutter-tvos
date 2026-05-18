@@ -1,0 +1,87 @@
+From e54790a765515e42631e41b8296293c0a47265c8 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:59:25 +0200
+Subject: [PATCH 22/39] tvos: add --tvos/--tvos-simulator flags to tools/gn
+
+
+diff --git a/engine/src/flutter/tools/gn b/engine/src/flutter/tools/gn
+index 726f1715..7457a711 100755
+--- a/engine/src/flutter/tools/gn
++++ b/engine/src/flutter/tools/gn
+@@ -20,7 +20,12 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
+ 
+ 
+ def get_out_dir(args):
+-  if args.target_os is not None:
++  if args.tvos:
++    # tvOS still targets target_os=ios at the GN layer (engine code lives in
++    # ios/ paths), but emit a distinct out dir so it does not collide with an
++    # iOS build of the same runtime mode / cpu.
++    target_dir = ['tvos']
++  elif args.target_os is not None:
+     target_dir = [args.target_os]
+   elif args.web:
+     target_dir = ['wasm']
+@@ -284,6 +289,8 @@ def setup_apple_sdks():
+       ('MacOSX', 'mac_sdk_path'),
+       ('iPhoneOS', 'ios_device_sdk_path'),
+       ('iPhoneSimulator', 'ios_simulator_sdk_path'),
++      ('AppleTVOS', 'tvos_device_sdk_path'),
++      ('AppleTVSimulator', 'tvos_simulator_sdk_path'),
+       ('XcodeDefault.xctoolchain', 'mac_host_toolchain_path'),
+   ]
+   sdks_path = os.path.join(SRC_ROOT, 'flutter', 'prebuilts', 'SDKs')
+@@ -298,6 +305,8 @@ def setup_apple_sdks():
+       ('MacOSX', 'mac_platform_path'),
+       ('iPhoneOS', 'ios_device_platform_path'),
+       ('iPhoneSimulator', 'ios_simulator_platform_path'),
++      ('AppleTVOS', 'tvos_device_platform_path'),
++      ('AppleTVSimulator', 'tvos_simulator_platform_path'),
+   ]
+   platforms_path = os.path.join(SRC_ROOT, 'flutter', 'prebuilts', 'Platforms')
+   platform_entries = os.listdir(platforms_path)
+@@ -552,6 +561,11 @@ def to_gn_args(args):
+     else:
+       gn_args['use_ios_simulator'] = False
+     gn_args['ios_use_simulator'] = gn_args['use_ios_simulator']
++    # Propagate tvOS toggles. is_tvos gates WebKit/IOKit in the ios/ BUILD.gn
++    # and selects the tvOS SDK in darwin_sdk.gni.
++    if args.tvos:
++      gn_args['is_tvos'] = True
++      gn_args['use_tvos_simulator'] = args.tvos_simulator or args.simulator
+     gn_args.update(setup_apple_sdks())
+ 
+   # Make the Dart VM include a simulator, even though it is generating arm64
+@@ -970,6 +984,11 @@ def parse_args(args):
+   parser.add_argument('--mac', dest='target_os', action='store_const', const='mac')
+   parser.add_argument('--mac-cpu', type=str, choices=['x64', 'arm64'], default='x64')
+   parser.add_argument('--simulator', action='store_true', default=False)
++  # tvOS targets. --tvos implies target_os=ios (engine code lives under ios/)
++  # with is_tvos=true toggling the tvOS variant. --tvos-simulator further
++  # implies --simulator and --tvos.
++  parser.add_argument('--tvos', action='store_true', default=False)
++  parser.add_argument('--tvos-simulator', action='store_true', default=False)
+   parser.add_argument('--linux', dest='target_os', action='store_const', const='linux')
+   parser.add_argument('--fuchsia', dest='target_os', action='store_const', const='fuchsia')
+   parser.add_argument('--wasm', dest='target_os', action='store_const', const='wasm')
+@@ -1300,7 +1319,19 @@ def parse_args(args):
+       help='Forces glfw to use swiftshader.',
+   )
+ 
+-  return parser.parse_args(args)
++  parsed = parser.parse_args(args)
++
++  # tvOS targets live under the ios/ engine tree, so --tvos and
++  # --tvos-simulator both imply target_os=ios. --tvos-simulator additionally
++  # implies --tvos and --simulator. These flags cooperate with the is_tvos
++  # and use_tvos_simulator GN args emitted below.
++  if parsed.tvos_simulator:
++    parsed.tvos = True
++    parsed.simulator = True
++  if parsed.tvos:
++    parsed.target_os = 'ios'
++
++  return parsed
+ 
+ 
+ def validate_args(args):

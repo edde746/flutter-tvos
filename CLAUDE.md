@@ -23,7 +23,7 @@ flutter-tvos/
 │   ├── build-engine.sh <version> <variant>  # wraps gn + ninja
 │   └── package.sh <version>          # tars the framework + gen_snapshot for release
 ├── versions/
-│   └── 3.41.6/
+│   └── 3.44.0/
 │       ├── sdk.lock                  # pinned engine/dart/skia commit SHAs
 │       ├── build.sh                  # variant-specific build orchestration for this release
 │       └── patches/
@@ -52,26 +52,26 @@ The monorepo root (`sources/<v>/`, where `.gclient` lives) is **also** a git rep
 
 The workflow is always:
 
-1. `scripts/fetch-sources.sh 3.41.6` — gclient-sync upstream into `./sources/3.41.6/`
-2. `scripts/apply-patches.sh 3.41.6` — git-am the current patch series
-3. Edit freely inside `sources/3.41.6/` (engine patches), `sources/3.41.6/engine/src/flutter/third_party/dart/`, or `.../skia/`. Commit your changes **inside those checkouts** (`git commit` in the source tree, not in this repo).
-4. `scripts/regenerate-patches.sh 3.41.6` — writes the updated patch series back into `versions/3.41.6/patches/` by running `git format-patch` against the pinned bases in `sdk.lock`.
+1. `scripts/fetch-sources.sh 3.44.0` — gclient-sync upstream into `./sources/3.44.0/`
+2. `scripts/apply-patches.sh 3.44.0` — git-am the current patch series
+3. Edit freely inside `sources/3.44.0/` (engine patches), `sources/3.44.0/engine/src/flutter/third_party/dart/`, or `.../skia/`. Commit your changes **inside those checkouts** (`git commit` in the source tree, not in this repo).
+4. `scripts/regenerate-patches.sh 3.44.0` — writes the updated patch series back into `versions/3.44.0/patches/` by running `git format-patch` against the pinned bases in `sdk.lock`.
 5. `git add versions/ && git commit` in this repo.
 
 Why this matters: the patch files are *generated artifacts*. Editing them by hand will drift from what the source tree actually builds, conflicts will bite on the next rebase, and the engine you ship will not match the diff you think you're shipping. If you see a patch that needs changing, make the change in `./sources/` and regenerate.
 
 ## Bumping to a new Flutter version
 
-Example: bump 3.41.6 → 3.44.0.
+Example: bump 3.44.0 → 3.45.0.
 
-1. `cp -r versions/3.41.6 versions/3.44.0`
-2. Edit `versions/3.44.0/sdk.lock` — update the engine ref to the new Flutter git tag `3.44.0` (and `ENGINE_COMMIT` to the SHA that tag points at). For `DART_COMMIT` and `SKIA_COMMIT`, read the new monorepo's `DEPS` file (at its root for the post-monorepo layout) to find what gclient will resolve — keep them in sync.
-3. `scripts/fetch-sources.sh 3.44.0` — pulls the new upstream commits.
-4. `scripts/apply-patches.sh 3.44.0` — tries to apply the old patches onto the new sources.
+1. `cp -r versions/3.44.0 versions/3.45.0`
+2. Edit `versions/3.45.0/sdk.lock` — update the engine ref to the new Flutter git tag `3.45.0` (and `ENGINE_COMMIT` to the SHA that tag points at). For `DART_COMMIT` and `SKIA_COMMIT`, read the new monorepo's `DEPS` file (at its root for the post-monorepo layout) to find what gclient will resolve — keep them in sync.
+3. `scripts/fetch-sources.sh 3.45.0` — pulls the new upstream commits.
+4. `scripts/apply-patches.sh 3.45.0` — tries to apply the old patches onto the new sources.
 5. Expect conflicts. Resolve them in `./sources/` using normal git tools (`git am --3way --continue`, `git apply --3way --reject` + manual fixup). Write the fixes **as source-tree edits**.
-6. `scripts/regenerate-patches.sh 3.44.0` — captures the new patch series, now pinned to the new upstream bases.
-7. Build each variant (`scripts/build-engine.sh 3.44.0 tvos_release` etc.), verify the app still runs on simulator + device.
-8. Commit `versions/3.44.0/` to this repo. Leave `versions/3.41.6/` alone — we keep history per version.
+6. `scripts/regenerate-patches.sh 3.45.0` — captures the new patch series, now pinned to the new upstream bases.
+7. Build each variant (`scripts/build-engine.sh 3.45.0 tvos_release` etc.), verify the app still runs on simulator + device.
+8. Commit `versions/3.45.0/` to this repo. Leave `versions/3.44.0/` alone — we keep history per version.
 
 ## Variants we build
 
@@ -110,12 +110,12 @@ If you're asked to "make videos smoother on tvOS" or "add a new plugin on Apple 
 ## Build the prebuilt engine
 
 ```bash
-./scripts/fetch-sources.sh 3.41.6        # one-time per version; ~20 min
-./scripts/apply-patches.sh 3.41.6
-./scripts/build-engine.sh 3.41.6 host_release
-./scripts/build-engine.sh 3.41.6 tvos_debug_sim_unopt_arm64
-./scripts/build-engine.sh 3.41.6 tvos_release
-./scripts/package.sh 3.41.6              # → out/packages/flutter-tvos-3.41.6.tar.gz
+./scripts/fetch-sources.sh 3.44.0        # one-time per version; ~20 min
+./scripts/apply-patches.sh 3.44.0
+./scripts/build-engine.sh 3.44.0 host_release
+./scripts/build-engine.sh 3.44.0 tvos_debug_sim_unopt_arm64
+./scripts/build-engine.sh 3.44.0 tvos_release
+./scripts/package.sh 3.44.0              # → out/packages/flutter-tvos-3.44.0.tar.gz
 ```
 
 Then upload the tarball to a GitHub Release on this repo. Consumer apps point `FLUTTER_LOCAL_ENGINE` at the extracted tarball.

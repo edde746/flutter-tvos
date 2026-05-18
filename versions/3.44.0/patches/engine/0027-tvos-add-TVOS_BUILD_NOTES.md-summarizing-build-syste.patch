@@ -1,0 +1,145 @@
+From 799997269f404fbf9cce65ef756cc0204b5b5aa4 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 23:03:37 +0200
+Subject: [PATCH 27/39] tvos: add TVOS_BUILD_NOTES.md summarizing build system
+ changes
+
+
+diff --git a/TVOS_BUILD_NOTES.md b/TVOS_BUILD_NOTES.md
+new file mode 100644
+index 00000000..1753403d
+--- /dev/null
++++ b/TVOS_BUILD_NOTES.md
+@@ -0,0 +1,132 @@
++# tvOS Build System Support
++
++This document describes how the engine build system was extended to support
++`et build --config tvos_debug_sim_unopt_arm64` targeting the Apple TV simulator.
++
++## Files modified
++
++All modifications live inside the engine tree. Changes are scoped to the
++build system; no iOS engine source was touched.
++
++- `engine/src/build/mac/darwin_sdk.py`
++  Added `appletvos` and `appletvsimulator` to the supported `SDKS` list.
++- `engine/src/build/config/darwin/darwin_sdk.gni`
++  Declared new tvOS GN args (`is_tvos`, `use_tvos_simulator`,
++  `tvos_deployment_target`, `tvos_sdk_path`, `tvos_device_sdk_path`,
++  `tvos_simulator_sdk_path`, `tvos_device_platform_path`,
++  `tvos_simulator_platform_path`). Added SDK path resolution: when
++  `is_tvos && is_ios` the effective `ios_sdk_path`/`ios_platform_path` are
++  routed at the tvOS SDK/platform, which keeps the existing toolchains and
++  downstream iOS-tree references working unchanged.
++- `engine/src/build/toolchain/mac/BUILD.gn`
++  Added three new `mac_toolchain()` definitions (only active when
++  `is_tvos`): `tvos_clang_arm64` (device), `tvos_clang_arm_sim` (simulator
++  arm64), `tvos_clang_x64_sim` (simulator x64). Each uses the tvOS SDK and
++  the `-mappletvos-version-min=` / `-mappletvsimulator-version-min=` flag.
++- `engine/src/build/config/BUILDCONFIG.gn`
++  When `is_ios && is_tvos`, selects one of the new tvOS toolchains as the
++  default, instead of the `ios_clang_*` toolchains.
++- `engine/src/build/config/compiler/BUILD.gn`
++  Emits `--target=arm64-apple-tvos-simulator` (or device equivalent) as the
++  Clang target triple when `is_tvos`. iOS behaviour unchanged.
++- `engine/src/build/config/darwin/BUILD.gn`
++  Emits the correct Swift `-target` triplet
++  (`arm64-apple-tvos14.0-simulator`) when `is_tvos`.
++- `engine/src/flutter/shell/platform/darwin/ios/BUILD.gn`
++  Removed the local `declare_args { is_tvos }` block (now a global arg in
++  `darwin_sdk.gni`).
++- `engine/src/flutter/tools/gn`
++  Added `--tvos` and `--tvos-simulator` argparse flags. `--tvos` implies
++  `target_os=ios`; `--tvos-simulator` additionally implies `--simulator`
++  and `--tvos`. Emits `is_tvos` and `use_tvos_simulator` into the GN args
++  dict. Added `AppleTVOS`/`AppleTVSimulator` prefixes to `setup_apple_sdks`
++  so the `//flutter/prebuilts/SDKs` and `//flutter/prebuilts/Platforms`
++  symlinks are consumed. Named the output directory `out/tvos_...` so it
++  does not collide with an iOS build at the same runtime/cpu.
++- `engine/src/flutter/ci/builders/local_engine.json`
++  Added a new `macos/tvos_debug_sim_unopt_arm64` builder entry mirroring
++  the existing `macos/ios_debug_sim_unopt_arm64` entry but passing
++  `--tvos --tvos-simulator` to `tools/gn` and naming the ninja config
++  `tvos_debug_sim_unopt_arm64`.
++
++## New GN args
++
++Declared in `build/config/darwin/darwin_sdk.gni`:
++
++| Arg | Default | Purpose |
++| --- | --- | --- |
++| `is_tvos` | `false` | Global toggle: when true, the iOS target tree builds a tvOS-flavored Flutter.framework. |
++| `use_tvos_simulator` | `true` | Mirrors `use_ios_simulator` for the tvOS variant. |
++| `tvos_deployment_target` | `"14.0"` | Passed via `-mappletv[os\|simulator]-version-min` and in the Swift triple. |
++| `tvos_sdk_path` | `""` | Effective tvOS SDK (set by darwin_sdk.gni from the device/simulator path). |
++| `tvos_device_sdk_path` | `""` | Path to AppleTVOS SDK. |
++| `tvos_simulator_sdk_path` | `""` | Path to AppleTVSimulator SDK. |
++| `tvos_device_platform_path` | `""` | Path to AppleTVOS.platform. |
++| `tvos_simulator_platform_path` | `""` | Path to AppleTVSimulator.platform. |
++
++## How to invoke a tvOS build
++
++```bash
++cd engine/src/flutter
++./bin/et build --config tvos_debug_sim_unopt_arm64
++```
++
++The build output lives at `engine/src/out/tvos_debug_sim_unopt_arm64/`.
++
++The equivalent raw gn invocation is:
++
++```bash
++python3 tools/gn \
++    --tvos --tvos-simulator --simulator-cpu=arm64 \
++    --runtime-mode debug --unoptimized --no-stripped --no-lto \
++    --xcode-symlinks --rbe --no-goma
++```
++
++## First-compile result
++
++**Build-system wiring: WORKING.** GN generation completes cleanly and ninja
++selects the new `tvos_clang_arm_sim` toolchain, emits the correct sysroot
++(`AppleTVSimulator26.4.sdk`), and drives clang with `--target=arm64-apple-tvos-simulator`
++and `-mappletvsimulator-version-min=14.0`. Skia compiles clean. Roughly 293 of
++7046 targets built before ninja stopped on the first iOS-specific source-level
++tvOS-incompatibility.
++
++**Compile failures observed (source-level, not build-system level):**
++
++1. `shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h:96:35` – `'UIApplicationShortcutItem' is unavailable: not available on tvOS`
++2. `shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h:198:35` – same, second reference
++3. `../out/tvos_debug_sim_unopt_arm64/Flutter.framework/Headers/FlutterSceneLifeCycle.h:96:35` – same (header copied into framework)
++4. `../out/tvos_debug_sim_unopt_arm64/Flutter.framework/Headers/FlutterSceneLifeCycle.h:198:35` – same
++5. `shell/platform/darwin/ios/InternalFlutterSwift-Bridging-Header.h:8:9` – `could not build module 'Flutter'` (cascade from #1–4)
++6. `shell/platform/darwin/common/framework/Source/Logger.swift:60:3` – `'self.init' isn't called on all paths before returning from initializer` (pre-existing Swift code branching that is valid on iOS but exhaustive-check failure when the `#if` arm picks a non-initializing path on tvOS)
++
++All of these are source-code tvOS porting issues, not build-system problems:
++the toolchain, SDK, and flag plumbing are correct.
++
++## Known limitations
++
++- The `is_tvos` variant still has `is_ios == true` at the GN layer. Downstream
++  `BUILD.gn` files must explicitly check `!is_tvos` if they wish to exclude
++  iOS-only code. The ios/BUILD.gn already gates WebKit/IOKit correctly, but
++  other iOS-only APIs referenced from headers (e.g.
++  `UIApplicationShortcutItem`, `UIMenuBuilder`) surface as compile errors
++  inside public framework headers and will need to be conditionally
++  `API_UNAVAILABLE(tvos)`-guarded or excluded from the tvOS header copy set.
++- `tvos_deployment_target` defaults to `"14.0"`; adjust as needed for the
++  target fleet.
++- The `ios_clang_arm` toolchain (iOS device arm) is currently not built for
++  tvOS — a full tvOS device target needs `tvos_clang_arm64` which is wired
++  but untested (no `--tvos` + `--no-simulator` build path exercised; one
++  could add a `tvos_debug_arm64` builder when needed).
++- Swift bridging-header compilation inherits the `Flutter.h` umbrella header,
++  so any single iOS-only symbol in a public header breaks the whole Swift
++  module build. Source-level fix will be needed for the
++  `FlutterSceneLifeCycle.h` hits above.
++
++## Next concrete action
++
++Port `shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h`
++(and the copied framework header) by gating `UIApplicationShortcutItem`
++references behind `#if !TARGET_OS_TV` (or annotating the selectors
++`API_UNAVAILABLE(tvos)`). Then rebuild; the next few errors will reveal what
++else in the umbrella header needs gating.

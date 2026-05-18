@@ -7,11 +7,11 @@ This repo is **just the diffs** — not a fork of the whole engine. Scripts fetc
 ## Quickstart
 
 ```bash
-./scripts/fetch-sources.sh 3.41.6    # gclient sync upstream (~10 GB, ~20 min)
-./scripts/apply-patches.sh 3.41.6
-./scripts/build-engine.sh 3.41.6 host_release
-./scripts/build-engine.sh 3.41.6 tvos_release
-./scripts/package.sh 3.41.6
+./scripts/fetch-sources.sh 3.44.0    # gclient sync upstream (~10 GB, ~20 min)
+./scripts/apply-patches.sh 3.44.0
+./scripts/build-engine.sh 3.44.0 host_release
+./scripts/build-engine.sh 3.44.0 tvos_release
+./scripts/package.sh 3.44.0
 ```
 
 Requirements: macOS + Xcode, Python 3, git. depot_tools is auto-installed to `./depot_tools/` if not on `PATH`.

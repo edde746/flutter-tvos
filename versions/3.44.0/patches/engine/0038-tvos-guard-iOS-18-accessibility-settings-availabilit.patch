@@ -1,0 +1,55 @@
+From 850504faf8a1724db85b40eb43a3a6cbe2b9ca96 Mon Sep 17 00:00:00 2001
+From: tvOS port <tvos@local>
+Date: Mon, 18 May 2026 20:36:49 +0200
+Subject: [PATCH 38/39] tvos: guard iOS 18 accessibility settings availability
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/AccessibilityFeatures.swift b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/AccessibilityFeatures.swift
+index 46b3b70b..d61ec3c3 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/AccessibilityFeatures.swift
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/AccessibilityFeatures.swift
+@@ -79,7 +79,7 @@ public class AccessibilityFeatures: NSObject {
+             AccessibilityFeatures.videosAutoPlayStatusDidChangeNotification,
+         ]
+         
+-        if #available(iOS 18.0, *) {
++        if #available(iOS 18.0, tvOS 18.0, *) {
+             names.append(contentsOf: [
+                 AccessibilityFeatures.animatedImagesAutoPlayStatusDidChangeNotification,
+                 AccessibilityFeatures.deterministicCursorStatusDidChangeNotification,
+@@ -170,7 +170,7 @@ public class AccessibilityFeatures: NSObject {
+     }
+     
+     /// Notification name for changes to `Auto-Play Animated Images` setting.
+-    @available(iOS 18.0, *)
++    @available(iOS 18.0, tvOS 18.0, *)
+     @objc public static var animatedImagesAutoPlayStatusDidChangeNotification: String {
+         return AccessibilitySettings.animatedImagesEnabledDidChangeNotification.rawValue
+     }
+@@ -179,7 +179,7 @@ public class AccessibilityFeatures: NSObject {
+     ///
+     /// Defaults to `true` on iOS versions earlier than 18.
+     @objc public func isAnimatedImagesAutoPlayEnabled() -> Bool {
+-        if #available(iOS 18.0, *) {
++        if #available(iOS 18.0, tvOS 18.0, *) {
+             return AccessibilitySettings.animatedImagesEnabled
+         }
+         return true
+@@ -196,7 +196,7 @@ public class AccessibilityFeatures: NSObject {
+     }
+     
+     /// Notification name for changes to `Prefer Non-Blinking Cursor` setting.
+-    @available(iOS 18.0, *)
++    @available(iOS 18.0, tvOS 18.0, *)
+     @objc public static var deterministicCursorStatusDidChangeNotification: String {
+         return AccessibilitySettings.prefersNonBlinkingTextInsertionIndicatorDidChangeNotification.rawValue
+     }
+@@ -205,7 +205,7 @@ public class AccessibilityFeatures: NSObject {
+     ///
+     /// Defaults to `false` on iOS versions earlier than 18.
+     @objc public func isDeterministicCursorEnabled() -> Bool {
+-        if #available(iOS 18.0, *) {
++        if #available(iOS 18.0, tvOS 18.0, *) {
+             return AccessibilitySettings.prefersNonBlinkingTextInsertionIndicator
+         }
+         return false

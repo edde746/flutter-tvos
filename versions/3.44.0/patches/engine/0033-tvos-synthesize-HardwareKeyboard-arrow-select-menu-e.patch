@@ -1,0 +1,295 @@
+From 43d01f5896d59c2dfeb5b7e799f0c4aa8deb2648 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Sun, 3 May 2026 21:03:41 +0200
+Subject: [PATCH 33/39] tvos: synthesize HardwareKeyboard arrow/select/menu
+ events from Siri Remote
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The 2nd/3rd-gen Siri Remote ("all-black" remote, no rotary click-wheel) is
+unnavigable in Flutter apps because Apple does not populate UIPress.key for
+remote button presses (only physical-keyboard presses populate it). The
+standard handlePressEvent: → embedder responder path bails out for nil keys,
+so HardwareKeyboard.instance never sees directional clicks. Apps that listen
+on HardwareKeyboard (the modern key channel that drives Focus/Shortcuts) get
+nothing — only the legacy flutter/keyevent RawKeyboard channel that patch
+0032's gesture recognizers fed.
+
+Fix:
+- pressesBegan/Ended/Cancelled: when press.key is nil, synthesize a
+  FlutterKeyEvent (USB HID + Flutter logical key) via the engine's
+  sendKeyEvent: so it lands in HardwareKeyboard.instance. Hardware-keyboard
+  presses (key != nil) are left to the existing path so we don't double-fire.
+- setupTouchesWithGamepad: translate GCMicroGamepad.dpad analog x/y into
+  arrow-key Down/Up via a hysteresis threshold (enter ±0.6, exit ±0.3). This
+  gives the touch surface ("swipe") the same focus traversal as the clickpad.
+- A small synthesizedPressedKeys set dedupes concurrent paths (UIPress
+  recognizer + dpad threshold) for the same logical key.
+
+Mapped press types: leftArrow, rightArrow, upArrow, downArrow → arrow keys;
+select → enter; menu → escape. The legacy gesture-recognizer keyEventChannel
+sends are kept so any RawKeyboard consumer is unaffected.
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 19f65492..8be2da00 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -76,6 +76,16 @@
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate, UIGestureRecognizerDelegate>
+ @property(nonatomic, strong) FlutterBasicMessageChannel* keyEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* gamepadTouchEventChannel;
++// Apple only populates UIPress.key for physical keyboards, so Siri Remote button
++// presses arrive at handlePressEvent: with key == nil and never reach
++// HardwareKeyboard.instance. We synthesize FlutterKeyEvents directly via the
++// engine's embedder key-data channel; this set tracks the synthesized presses
++// so duplicate paths (UIPress recognizer + GCMicroGamepad dpad threshold) dedupe.
++@property(nonatomic, strong) NSMutableSet<NSNumber*>* synthesizedPressedKeys;
++// GCMicroGamepad dpad analog → discrete arrow-key state. -1/0/+1 per axis.
++// X axis: -1 = arrowLeft, +1 = arrowRight. Y axis: -1 = arrowDown, +1 = arrowUp.
++@property(nonatomic, assign) NSInteger dpadXDirection;
++@property(nonatomic, assign) NSInteger dpadYDirection;
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
+ #endif
+@@ -829,6 +839,184 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ 
+ #pragma mark - remote tap handling
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++
++- (NSMutableSet<NSNumber*>*)synthesizedPressedKeys {
++  if (!_synthesizedPressedKeys) {
++    _synthesizedPressedKeys = [NSMutableSet set];
++  }
++  return _synthesizedPressedKeys;
++}
++
++// Dispatches a FlutterKeyEvent through the engine's embedder key-data channel,
++// which lands on Flutter's HardwareKeyboard.instance. Dedupes against
++// |synthesizedPressedKeys| so concurrent paths (UIPress recognizer + dpad
++// analog threshold) for the same logical key emit only one Down/Up pair.
++- (void)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
++                             physical:(uint64_t)physical
++                              logical:(uint64_t)logical {
++  if (@available(tvOS 13.4, *)) {
++    NSNumber* key = @(physical);
++    if (type == kFlutterKeyEventTypeDown) {
++      if ([self.synthesizedPressedKeys containsObject:key]) {
++        return;
++      }
++      [self.synthesizedPressedKeys addObject:key];
++    } else if (type == kFlutterKeyEventTypeUp) {
++      if (![self.synthesizedPressedKeys containsObject:key]) {
++        return;
++      }
++      [self.synthesizedPressedKeys removeObject:key];
++    }
++    FlutterKeyEvent flutterEvent = {
++        .struct_size = sizeof(FlutterKeyEvent),
++        // Microseconds, matching FlutterEmbedderKeyResponder's GetFlutterTimestampFrom.
++        .timestamp = [[NSProcessInfo processInfo] systemUptime] * 1000000.0,
++        .type = type,
++        .physical = physical,
++        .logical = logical,
++        .character = nullptr,
++        .synthesized = false,
++        .device_type = kFlutterKeyEventDeviceTypeKeyboard,
++    };
++    [self.engine sendKeyEvent:flutterEvent callback:nullptr userData:nullptr];
++  }
++}
++
++// Maps a Siri-Remote-only UIPressType to USB HID physical / Flutter logical
++// key codes. Returns NO if the press type isn't one we synthesize for.
++// Hardware-keyboard presses (press.key != nil) are handled by the standard
++// FlutterEmbedderKeyResponder path and must NOT be re-synthesized here.
++- (BOOL)physicalLogicalForPressType:(UIPressType)pressType
++                           physical:(uint64_t*)outPhysical
++                            logical:(uint64_t*)outLogical {
++  switch (pressType) {
++    case UIPressTypeLeftArrow:
++      *outPhysical = 0x00070050ULL;
++      *outLogical = 0x100000302ULL;
++      return YES;
++    case UIPressTypeRightArrow:
++      *outPhysical = 0x0007004FULL;
++      *outLogical = 0x100000303ULL;
++      return YES;
++    case UIPressTypeUpArrow:
++      *outPhysical = 0x00070052ULL;
++      *outLogical = 0x100000301ULL;
++      return YES;
++    case UIPressTypeDownArrow:
++      *outPhysical = 0x00070051ULL;
++      *outLogical = 0x100000300ULL;
++      return YES;
++    case UIPressTypeSelect:
++      *outPhysical = 0x00070028ULL;  // Keyboard Return
++      *outLogical = 0x0000000DULL;   // LogicalKeyboardKey.enter
++      return YES;
++    case UIPressTypeMenu:
++      *outPhysical = 0x00070029ULL;  // Keyboard ESCAPE
++      *outLogical = 0x0000001BULL;   // LogicalKeyboardKey.escape
++      return YES;
++    default:
++      return NO;
++  }
++}
++
++// Synthesizes a HardwareKeyboard event for a Siri Remote press whose
++// |press.key| is nil (Apple does not populate UIKey for remote buttons,
++// only for physical keyboards). The standard handlePressEvent: path bails
++// out for nil keys, so without this the modern key channel never sees the
++// event and Flutter Focus traversal silently drops directional clicks.
++- (void)maybeSynthesizeForPress:(UIPress*)press
++                      eventType:(FlutterKeyEventType)type API_AVAILABLE(tvos(13.4)) {
++  if (@available(tvOS 13.4, *)) {
++    if (press.key != nil) {
++      // Hardware keyboard — embedder responder will emit; don't duplicate.
++      return;
++    }
++    uint64_t physical = 0;
++    uint64_t logical = 0;
++    if (![self physicalLogicalForPressType:press.type
++                                  physical:&physical
++                                   logical:&logical]) {
++      return;
++    }
++    [self sendSynthesizedKeyEventOfType:type physical:physical logical:logical];
++  }
++}
++
++// USB HID physical / Flutter logical key codes for arrow keys, indexed by
++// (axis, direction). axis: 0 = horizontal, 1 = vertical.
++// direction: -1 / +1 (0 is invalid here).
++- (void)physicalLogicalForAxis:(NSInteger)axisIndex
++                     direction:(NSInteger)direction
++                      physical:(uint64_t*)outPhysical
++                       logical:(uint64_t*)outLogical {
++  if (axisIndex == 0) {
++    if (direction < 0) {
++      *outPhysical = 0x00070050ULL;  // Keyboard LeftArrow
++      *outLogical = 0x100000302ULL;  // LogicalKeyboardKey.arrowLeft
++    } else {
++      *outPhysical = 0x0007004FULL;  // Keyboard RightArrow
++      *outLogical = 0x100000303ULL;  // LogicalKeyboardKey.arrowRight
++    }
++  } else {
++    // GCControllerDirectionPad y: +1.0 = up, -1.0 = down.
++    if (direction > 0) {
++      *outPhysical = 0x00070052ULL;  // Keyboard UpArrow
++      *outLogical = 0x100000301ULL;  // LogicalKeyboardKey.arrowUp
++    } else {
++      *outPhysical = 0x00070051ULL;  // Keyboard DownArrow
++      *outLogical = 0x100000300ULL;  // LogicalKeyboardKey.arrowDown
++    }
++  }
++}
++
++// Converts a continuous dpad axis value (-1.0..+1.0) into Down/Up arrow-key
++// transitions with hysteresis. Enter at |value| > 0.6, exit at |value| < 0.3.
++// Mirrors the click-pad press path so touch-surface swipes drive focus too.
++- (void)updateDpadAxis:(NSInteger)axisIndex value:(float)value {
++  static const float kEnterThreshold = 0.6f;
++  static const float kExitThreshold = 0.3f;
++  NSInteger currentDirection =
++      (axisIndex == 0) ? self.dpadXDirection : self.dpadYDirection;
++  NSInteger newDirection = currentDirection;
++  if (currentDirection == 0) {
++    if (value > kEnterThreshold) {
++      newDirection = 1;
++    } else if (value < -kEnterThreshold) {
++      newDirection = -1;
++    }
++  } else if (fabsf(value) < kExitThreshold) {
++    newDirection = 0;
++  }
++  if (newDirection == currentDirection) {
++    return;
++  }
++  uint64_t physical = 0;
++  uint64_t logical = 0;
++  if (currentDirection != 0) {
++    [self physicalLogicalForAxis:axisIndex
++                       direction:currentDirection
++                        physical:&physical
++                         logical:&logical];
++    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp
++                               physical:physical
++                                logical:logical];
++  }
++  if (newDirection != 0) {
++    [self physicalLogicalForAxis:axisIndex
++                       direction:newDirection
++                        physical:&physical
++                         logical:&logical];
++    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
++                               physical:physical
++                                logical:logical];
++  }
++  if (axisIndex == 0) {
++    self.dpadXDirection = newDirection;
++  } else {
++    self.dpadYDirection = newDirection;
++  }
++}
++
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -906,9 +1094,18 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+ 
+ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+   gamepad.reportsAbsoluteDpadValues = true;
++  __weak FlutterViewController* weakSelf = self;
+   gamepad.dpad.valueChangedHandler =
+       ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
+-        [self sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
++        FlutterViewController* strongSelf = weakSelf;
++        if (!strongSelf) {
++          return;
++        }
++        [strongSelf sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
++        // Translate dpad analog → discrete arrow keys so finger swipes on the
++        // 2nd/3rd-gen Siri Remote touch surface drive Flutter's focus traversal.
++        [strongSelf updateDpadAxis:0 value:xValue];
++        [strongSelf updateDpadAxis:1 value:yValue];
+       };
+ }
+ 
+@@ -2311,6 +2508,11 @@ - (void)superPressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEven
+ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++    for (UIPress* press in presses) {
++      [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeDown];
++    }
++#endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]
+@@ -2341,6 +2543,11 @@ - (void)pressesChanged:(NSSet<UIPress*>*)presses
+ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++    for (UIPress* press in presses) {
++      [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp];
++    }
++#endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]
+@@ -2356,6 +2563,11 @@ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+ - (void)pressesCancelled:(NSSet<UIPress*>*)presses
+                withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++    for (UIPress* press in presses) {
++      [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp];
++    }
++#endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]

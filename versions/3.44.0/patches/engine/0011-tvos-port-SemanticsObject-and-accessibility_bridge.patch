@@ -1,0 +1,212 @@
+From 40f7a15794013e0f08420287dcaad1a036d992d2 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:59:15 +0200
+Subject: [PATCH 11/39] tvos: port SemanticsObject and accessibility_bridge
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h
+index 2c9e0516..a349c127 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h
+@@ -180,9 +180,11 @@ constexpr float kScrollExtentMaxForInf = 1000;
+ 
+ /// The semantics object for switch buttons. This class creates an UISwitch to interact with the
+ /// iOS.
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ @interface FlutterSwitchSemanticsObject : SemanticsObject
+ 
+ @end
++#endif
+ 
+ /// The semantics object for scrollable. This class creates an UIScrollView to interact with the
+ /// iOS.
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm
+index cdcce174..62357cb5 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm
+@@ -94,10 +94,13 @@ CGRect ConvertRectToGlobal(SemanticsObject* reference, CGRect local_rect) {
+ 
+ }  // namespace
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ @interface FlutterSwitchSemanticsObject ()
+ @property(nonatomic, retain, readonly) UISwitch* nativeSwitch;
+ @end
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ @implementation FlutterSwitchSemanticsObject
+ 
+ - (instancetype)initWithBridge:(fml::WeakPtr<flutter::AccessibilityBridgeIos>)bridge
+@@ -140,6 +143,7 @@ - (UIAccessibilityTraits)accessibilityTraits {
+ }
+ 
+ @end  // FlutterSwitchSemanticsObject
++#endif  // End of #if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ 
+ @interface FlutterScrollableSemanticsObject ()
+ @property(nonatomic) FlutterSemanticsScrollView* scrollView;
+@@ -420,10 +424,14 @@ - (NSAttributedString*)createAttributedStringFromString:(NSString*)string
+         break;
+       }
+       case flutter::StringAttributeType::kSpellOut: {
+-        NSDictionary* attributeDict = @{
+-          UIAccessibilitySpeechAttributeSpellOut : @YES,
+-        };
+-        [attributedString setAttributes:attributeDict range:range];
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++        if (@available(iOS 13.0, tvOS 13.0, *)) {
++          NSDictionary* attributeDict = @{
++            UIAccessibilitySpeechAttributeSpellOut : @YES,
++          };
++          [attributedString setAttributes:attributeDict range:range];
++        }
++#endif
+         break;
+       }
+     }
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
+index 202d54de..5f0955e0 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
+@@ -11,6 +11,7 @@
+ #import "flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h"
+ #import "flutter/shell/platform/darwin/ios/framework/Source/TextInputSemanticsObject.h"
+ #import "flutter/shell/platform/darwin/ios/platform_view_ios.h"
++#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.h"
+ 
+ #include "flutter/common/constants.h"
+ 
+@@ -91,6 +92,21 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+     const flutter::CustomAccessibilityAction& action = entry.second;
+     actions_[action.id] = action;
+   }
++
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++  // tvOS approach: the accessibility focus rectangle is only visible when the UIView is the
++  // topmost view and is focused. The SemanticsObject (based on UIAccessibilityElement) is not a
++  // real focusable element. To work around this, a single UIView-based overlay is used to show
++  // the focus rectangle. When a semantics object gains focus, the overlay moves to its rect.
++  // Reset stale focus before processing the update.
++  if (last_focused_semantics_object_id_ != kSemanticObjectIdInvalid) {
++    SemanticsObject* object = objects_[@(last_focused_semantics_object_id_)];
++    if (!object || !object.node.HasFlag(flutter::SemanticsFlags::kIsFocused)) {
++      last_focused_semantics_object_id_ = kSemanticObjectIdInvalid;
++    }
++  }
++#endif
++
+   for (const auto& entry : nodes) {
+     const flutter::SemanticsNode& node = entry.second;
+     SemanticsObject* object = GetOrCreateObject(node.id, nodes);
+@@ -98,6 +114,15 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+     scrollOccured = scrollOccured || [object nodeWillCauseScroll:&node];
+     needsAnnouncement = [object nodeShouldTriggerAnnouncement:&node];
+     [object setSemanticsNode:&node];
++
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++    // Store focus uid, this could be changed in this update.
++    if (node.HasFlag(flutter::SemanticsFlags::kIsFocused) &&
++        (object.accessibilityLabel != nil && object.accessibilityLabel.length > 0)) {
++      last_focused_semantics_object_id_ = node.id;
++    }
++#endif
++
+     NSUInteger newChildCountInTraversalOrder = node.childrenInTraversalOrder.size();
+     NSMutableArray* newChildren =
+         [[NSMutableArray alloc] initWithCapacity:newChildCountInTraversalOrder];
+@@ -105,6 +130,7 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+       SemanticsObject* child = GetOrCreateObject(node.childrenInTraversalOrder[i], nodes);
+       [newChildren addObject:child];
+     }
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     NSUInteger newChildCountInHitTestOrder = node.childrenInHitTestOrder.size();
+     NSMutableArray* newChildrenInHitTestOrder =
+         [[NSMutableArray alloc] initWithCapacity:newChildCountInHitTestOrder];
+@@ -112,8 +138,11 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+       SemanticsObject* child = GetOrCreateObject(node.childrenInHitTestOrder[i], nodes);
+       [newChildrenInHitTestOrder addObject:child];
+     }
++#endif
+     object.children = newChildren;
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     object.childrenInHitTestOrder = newChildrenInHitTestOrder;
++#endif
+     if (!node.customAccessibilityActions.empty()) {
+       NSMutableArray<FlutterCustomAccessibilityAction*>* accessibilityCustomActions =
+           [[NSMutableArray alloc] init];
+@@ -158,10 +187,12 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+   SemanticsObject* lastAdded = nil;
+ 
+   if (root) {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     if (!view_controller_.view.accessibilityElements) {
+       view_controller_.view.accessibilityElements =
+           @[ [root accessibilityContainer] ?: [NSNull null] ];
+     }
++#endif
+     NSMutableArray<SemanticsObject*>* newRoutes = [[NSMutableArray alloc] init];
+     [root collectRoutes:newRoutes];
+     // Finds the last route that is not in the previous routes.
+@@ -207,7 +238,12 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+   }
+ 
+   if (!ios_delegate_->IsFlutterViewControllerPresentingModalViewController(view_controller_)) {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     layoutChanged = layoutChanged || [doomed_uids count] > 0;
++#else
++    // tvOS: force check for selection change/update
++    layoutChanged = true;
++#endif
+ 
+     if (routeChanged) {
+       NSString* routeName = [lastAdded routeName];
+@@ -216,6 +252,7 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+     }
+ 
+     if (layoutChanged) {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+       SemanticsObject* next = FindNextFocusableIfNecessary();
+       SemanticsObject* lastFocused = [objects_ objectForKey:@(last_focused_semantics_object_id_)];
+       // Only specify the focus item if the new focus is different, avoiding double focuses on the
+@@ -224,6 +261,27 @@ void PostAccessibilityNotification(UIAccessibilityNotifications notification,
+       ios_delegate_->PostAccessibilityNotification(
+           UIAccessibilityLayoutChangedNotification,
+           (routeChanged || next != lastFocused) ? next.nativeAccessibility : NULL);
++#else
++      FlutterAccessibilitySelectionView* selectionOverlay =
++          (FlutterAccessibilitySelectionView*)[view_controller_ getAccessibilitySelectionVliew];
++      if (selectionOverlay) {
++        // For tvOS there is only one focusable accessibility element (which will be re-used)
++        if (!view_controller_.view.accessibilityElements) {
++          view_controller_.view.accessibilityElements = @[ selectionOverlay ];
++        }
++        if (last_focused_semantics_object_id_ != kSemanticObjectIdInvalid) {
++          SemanticsObject* lastFocused = [objects_ objectForKey:@(last_focused_semantics_object_id_)];
++
++          // Force voice over for updated selection (Accessibility) element
++          [selectionOverlay updateSemantics:lastFocused];
++          ios_delegate_->PostAccessibilityNotification(UIAccessibilityLayoutChangedNotification,
++                                                       selectionOverlay);
++        } else {
++          // Force selection view to be hidden
++          [selectionOverlay updateSemantics:nil];
++        }
++      }
++#endif
+     } else if (scrollOccured) {
+       // TODO(chunhtai): figure out what string to use for notification. At this
+       // point, it is guarantee the previous focused object is still in the tree
+@@ -269,10 +327,12 @@ static void ReplaceSemanticsObject(SemanticsObject* oldObject,
+   if (node.flags.isTextField && !node.flags.isReadOnly) {
+     // Text fields are backed by objects that implement UITextInput.
+     return [[TextInputSemanticsObject alloc] initWithBridge:weak_ptr uid:node.id];
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   } else if (!node.flags.isInMutuallyExclusiveGroup &&
+              (node.flags.isToggled != flutter::SemanticsTristate::kNone ||
+               node.flags.isChecked != flutter::SemanticsCheckState::kNone)) {
+     return [[FlutterSwitchSemanticsObject alloc] initWithBridge:weak_ptr uid:node.id];
++#endif
+   } else if (node.flags.hasImplicitScrolling) {
+     return [[FlutterScrollableSemanticsObject alloc] initWithBridge:weak_ptr uid:node.id];
+   } else if (node.IsPlatformViewNode()) {

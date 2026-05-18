@@ -1,0 +1,35 @@
+From b46d45358676454f1e134b732fff04680302c054 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 23:07:09 +0200
+Subject: [PATCH 2/3] tvos: define DART_HOST_OS_TV and guard execvp
+
+
+diff --git a/runtime/bin/process_macos.cc b/runtime/bin/process_macos.cc
+index 7864788a..4cd71fc2 100644
+--- a/runtime/bin/process_macos.cc
++++ b/runtime/bin/process_macos.cc
+@@ -911,8 +911,8 @@ int Process::Exec(Namespace* namespc,
+                   const char* working_directory,
+                   char* errmsg,
+                   intptr_t errmsg_len) {
+-#if defined(DART_HOST_OS_WATCH)
+-  // execvp is not available on watchOS.
++#if defined(DART_HOST_OS_WATCH) || defined(DART_HOST_OS_TV)
++  // execvp is not available on watchOS/tvOS.
+   Utils::StrError(ENOSYS, errmsg, errmsg_len);
+   return -1;
+ #else
+diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
+index 487f9065..475b9268 100644
+--- a/runtime/platform/globals.h
++++ b/runtime/platform/globals.h
+@@ -123,6 +123,9 @@
+ #if TARGET_OS_IPHONE || (defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #define DART_HOST_OS_IOS 1
+ #endif
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++#define DART_HOST_OS_TV 1
++#endif
+ #if TARGET_OS_WATCH
+ #define DART_HOST_OS_WATCH 1
+ #endif

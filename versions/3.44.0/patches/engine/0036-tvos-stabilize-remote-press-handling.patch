@@ -1,0 +1,492 @@
+From abc59f4b6aa2f392c7cdfe157714b9077f5e6f4e Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 15 May 2026 22:05:10 +0200
+Subject: [PATCH 36/39] tvos: stabilize remote press handling
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 6765dcaf..b5e2579a 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -82,6 +82,10 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ // engine's embedder key-data channel; this set tracks the synthesized presses
+ // so duplicate down/up pairs from the press lifecycle dedupe correctly.
+ @property(nonatomic, strong) NSMutableSet<NSNumber*>* synthesizedPressedKeys;
++@property(nonatomic, strong) NSTimer* synthesizedRepeatDelayTimer;
++@property(nonatomic, strong) NSTimer* synthesizedRepeatTimer;
++@property(nonatomic, strong) NSNumber* synthesizedRepeatPhysicalKey;
++@property(nonatomic, assign) uint64_t synthesizedRepeatLogicalKey;
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
+ #endif
+@@ -847,21 +851,25 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ // which lands on Flutter's HardwareKeyboard.instance. Dedupes against
+ // |synthesizedPressedKeys| so concurrent UIKit press and GameController paths
+ // for the same logical key emit only one Down/Up pair.
+-- (void)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
++- (BOOL)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+                              physical:(uint64_t)physical
+                               logical:(uint64_t)logical {
+   if (@available(tvOS 13.4, *)) {
+     NSNumber* key = @(physical);
+     if (type == kFlutterKeyEventTypeDown) {
+       if ([self.synthesizedPressedKeys containsObject:key]) {
+-        return;
++        return NO;
+       }
+       [self.synthesizedPressedKeys addObject:key];
+     } else if (type == kFlutterKeyEventTypeUp) {
+       if (![self.synthesizedPressedKeys containsObject:key]) {
+-        return;
++        return NO;
+       }
+       [self.synthesizedPressedKeys removeObject:key];
++    } else if (type == kFlutterKeyEventTypeRepeat) {
++      if (![self.synthesizedPressedKeys containsObject:key]) {
++        return NO;
++      }
+     }
+     FlutterKeyEvent flutterEvent = {
+         .struct_size = sizeof(FlutterKeyEvent),
+@@ -872,16 +880,18 @@ - (void)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+         .logical = logical,
+         .character = nullptr,
+         .synthesized = false,
+-        .device_type = kFlutterKeyEventDeviceTypeKeyboard,
++        .device_type = kFlutterKeyEventDeviceTypeDirectionalPad,
+     };
+     [self.engine sendKeyEvent:flutterEvent callback:nullptr userData:nullptr];
++    return YES;
+   }
++  return NO;
+ }
+ 
+ // Maps a Siri-Remote-only UIPressType to USB HID physical / Flutter logical
+ // key codes. Returns NO if the press type isn't one we synthesize for.
+-// Hardware-keyboard presses (press.key != nil) are handled by the standard
+-// FlutterEmbedderKeyResponder path and must NOT be re-synthesized here.
++// Hardware-keyboard presses (press.key != nil) are usually handled by the
++// standard FlutterEmbedderKeyResponder path and must NOT be re-synthesized here.
+ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+                            physical:(uint64_t*)outPhysical
+                             logical:(uint64_t*)outLogical {
+@@ -903,8 +913,8 @@ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+       *outLogical = 0x100000301ULL;
+       return YES;
+     case UIPressTypeSelect:
+-      *outPhysical = 0x00070028ULL;  // Keyboard Return
+-      *outLogical = 0x0000000DULL;   // LogicalKeyboardKey.enter
++      *outPhysical = 0x00070077ULL;   // Keyboard Select
++      *outLogical = 0x10000050CULL;   // LogicalKeyboardKey.select
+       return YES;
+     case UIPressTypeMenu:
+       *outPhysical = 0x00070029ULL;  // Keyboard ESCAPE
+@@ -915,27 +925,156 @@ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+   }
+ }
+ 
+-// Synthesizes a HardwareKeyboard event for a Siri Remote press whose
+-// |press.key| is nil (Apple does not populate UIKey for remote buttons,
+-// only for physical keyboards). The standard handlePressEvent: path bails
+-// out for nil keys, so without this the modern key channel never sees the
+-// event and Flutter Focus traversal silently drops directional clicks.
+-- (void)maybeSynthesizeForPress:(UIPress*)press
++- (BOOL)isRepeatablePressType:(UIPressType)pressType {
++  switch (pressType) {
++    case UIPressTypeLeftArrow:
++    case UIPressTypeRightArrow:
++    case UIPressTypeUpArrow:
++    case UIPressTypeDownArrow:
++      return YES;
++    default:
++      return NO;
++  }
++}
++
++- (uint64_t)logicalForSynthesizedPhysicalKey:(uint64_t)physical {
++  switch (physical) {
++    case 0x00070050ULL:
++      return 0x100000302ULL;  // LogicalKeyboardKey.arrowLeft
++    case 0x0007004FULL:
++      return 0x100000303ULL;  // LogicalKeyboardKey.arrowRight
++    case 0x00070052ULL:
++      return 0x100000304ULL;  // LogicalKeyboardKey.arrowUp
++    case 0x00070051ULL:
++      return 0x100000301ULL;  // LogicalKeyboardKey.arrowDown
++    case 0x00070077ULL:
++      return 0x10000050CULL;  // LogicalKeyboardKey.select
++    case 0x00070029ULL:
++      return 0x10000001BULL;  // LogicalKeyboardKey.escape
++    default:
++      return 0;
++  }
++}
++
++- (void)releaseAllSynthesizedPresses {
++  [self stopSynthesizedRepeat];
++
++  NSArray<NSNumber*>* pressedKeys = [self.synthesizedPressedKeys allObjects];
++  for (NSNumber* key in pressedKeys) {
++    uint64_t physical = key.unsignedLongLongValue;
++    uint64_t logical = [self logicalForSynthesizedPhysicalKey:physical];
++    if (logical == 0) {
++      [self.synthesizedPressedKeys removeObject:key];
++      continue;
++    }
++    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp physical:physical logical:logical];
++  }
++}
++
++- (void)sendSynthesizedRepeat {
++  NSNumber* physicalKey = self.synthesizedRepeatPhysicalKey;
++  if (physicalKey == nil) {
++    return;
++  }
++  [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeRepeat
++                             physical:physicalKey.unsignedLongLongValue
++                              logical:self.synthesizedRepeatLogicalKey];
++}
++
++- (void)stopSynthesizedRepeat {
++  [self.synthesizedRepeatDelayTimer invalidate];
++  [self.synthesizedRepeatTimer invalidate];
++  self.synthesizedRepeatDelayTimer = nil;
++  self.synthesizedRepeatTimer = nil;
++  self.synthesizedRepeatPhysicalKey = nil;
++  self.synthesizedRepeatLogicalKey = 0;
++}
++
++- (void)startSynthesizedRepeatWithPhysical:(uint64_t)physical logical:(uint64_t)logical {
++  [self stopSynthesizedRepeat];
++  self.synthesizedRepeatPhysicalKey = @(physical);
++  self.synthesizedRepeatLogicalKey = logical;
++
++  __weak FlutterViewController* weakSelf = self;
++  self.synthesizedRepeatDelayTimer =
++      [NSTimer scheduledTimerWithTimeInterval:0.4
++                                      repeats:NO
++                                        block:^(NSTimer* _Nonnull timer) {
++                                          FlutterViewController* strongSelf = weakSelf;
++                                          if (!strongSelf) {
++                                            return;
++                                          }
++                                          [strongSelf sendSynthesizedRepeat];
++                                          strongSelf.synthesizedRepeatTimer =
++                                              [NSTimer scheduledTimerWithTimeInterval:0.08
++                                                                              repeats:YES
++                                                                                block:^(NSTimer* _Nonnull timer) {
++                                                                                  [weakSelf sendSynthesizedRepeat];
++                                                                                }];
++                                        }];
++}
++
++- (BOOL)remotePhysicalLogicalForPress:(UIPress*)press
++                             physical:(uint64_t*)outPhysical
++                              logical:(uint64_t*)outLogical API_AVAILABLE(tvos(13.4)) {
++  if (@available(tvOS 13.4, *)) {
++    if (![self physicalLogicalForPressType:press.type
++                                  physical:outPhysical
++                                   logical:outLogical]) {
++      return NO;
++    }
++
++    // Apple documents UIPress.key as hardware-keyboard-only. Siri Remote
++    // presses are therefore handled by UIPress.type, not UIKey.keyCode. Some
++    // tvOS remote paths still reach UIKit's key responder with a nil UIKey or
++    // a zero keyCode; zero is USB HID's reserved usage, and Flutter's normal
++    // iOS fallback mints it as 0x01300000000. Consume those remote presses here
++    // so the app receives the semantic arrow/select key instead.
++    if (press.key == nil || press.key.keyCode == 0) {
++      return YES;
++    }
++
++    // Select is special on tvOS: a long-press Select release can surface with
++    // a UIKey-like payload and fall through as a raw enter/control key. The
++    // UIPress.type remains authoritative for the center/select button, and
++    // keyboard Enter has the same activation semantic on tvOS, so route it
++    // through the synthesized Select path instead of the generic iOS key path.
++    return press.type == UIPressTypeSelect;
++  }
++  return NO;
++}
++
++// Synthesizes a HardwareKeyboard event for a Siri Remote press. UIKit exposes
++// remote semantics through UIPress.type, while Flutter's normal iOS UIKey path
++// only knows hardware-keyboard HID usages.
++- (BOOL)maybeSynthesizeForPress:(UIPress*)press
+                       eventType:(FlutterKeyEventType)type API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+-    if (press.key != nil) {
+-      // Hardware keyboard — embedder responder will emit; don't duplicate.
+-      return;
++    if (press.type == UIPressTypeSelect) {
++      // Select long-press delivery is more reliable through
++      // UIPressGestureRecognizer. Consume the UIKit press lifecycle so it
++      // cannot fall through as raw Enter, but let handleCenterTap own the
++      // down/up events that widgets use for long-press timers.
++      return YES;
+     }
++
+     uint64_t physical = 0;
+     uint64_t logical = 0;
+-    if (![self physicalLogicalForPressType:press.type
+-                                  physical:&physical
+-                                   logical:&logical]) {
+-      return;
++    if (![self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
++      return NO;
++    }
++    if (type == kFlutterKeyEventTypeUp) {
++      if (self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
++        [self stopSynthesizedRepeat];
++      }
++    }
++    BOOL sent = [self sendSynthesizedKeyEventOfType:type physical:physical logical:logical];
++    if (sent && type == kFlutterKeyEventTypeDown && [self isRepeatablePressType:press.type]) {
++      [self startSynthesizedRepeatWithPhysical:physical logical:logical];
+     }
+-    [self sendSynthesizedKeyEventOfType:type physical:physical logical:logical];
++    return YES;
+   }
++  return NO;
+ }
+ 
+ - (void)sendSynthesizedPressType:(UIPressType)pressType pressed:(BOOL)pressed {
+@@ -945,9 +1084,15 @@ - (void)sendSynthesizedPressType:(UIPressType)pressType pressed:(BOOL)pressed {
+     if (![self physicalLogicalForPressType:pressType physical:&physical logical:&logical]) {
+       return;
+     }
+-    [self sendSynthesizedKeyEventOfType:pressed ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp
+-                              physical:physical
+-                               logical:logical];
++    if (!pressed && self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
++      [self stopSynthesizedRepeat];
++    }
++    BOOL sent = [self sendSynthesizedKeyEventOfType:pressed ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp
++                                          physical:physical
++                                           logical:logical];
++    if (sent && pressed && [self isRepeatablePressType:pressType]) {
++      [self startSynthesizedRepeatWithPhysical:physical logical:logical];
++    }
+   }
+ }
+ 
+@@ -981,11 +1126,6 @@ - (void)setupDirectionalGamepadFallbacks:(GCMicroGamepad*)gamepad {
+       [self setupGameControllerButton:cardinalDpad.right pressType:UIPressTypeRightArrow];
+     }
+   }
+-
+-  if (GCInputDirectionalCenterButton != nil) {
+-    GCControllerButtonInput* centerButton = gamepad.buttons[GCInputDirectionalCenterButton];
+-    [self setupGameControllerButton:centerButton pressType:UIPressTypeSelect];
+-  }
+ #pragma clang diagnostic pop
+ }
+ 
+@@ -1007,16 +1147,33 @@ - (void)handleTap:(UITapGestureRecognizer*)recognizer
+     [self sendTap:key withType:keyMapType ofType:@"keyup"];
+   }
+ }
++- (void)handleAtomicTap:(UITapGestureRecognizer*)recognizer
++              withType:(NSString*)keyMapType
++               keyType:(int)key {
++  if (recognizer.state == UIGestureRecognizerStateBegan) {
++    [self sendTap:key withType:keyMapType ofType:@"keydown"];
++    [self sendTap:key withType:keyMapType ofType:@"keyup"];
++  }
++}
++- (void)handleLeftTap:(UITapGestureRecognizer*)recognizer {
++  [self handleAtomicTap:recognizer withType:@"android" keyType:0x15];
++}
++- (void)handleRightTap:(UITapGestureRecognizer*)recognizer {
++  [self handleAtomicTap:recognizer withType:@"android" keyType:0x16];
++}
++- (void)handleUpTap:(UITapGestureRecognizer*)recognizer {
++  [self handleAtomicTap:recognizer withType:@"android" keyType:0x13];
++}
++- (void)handleDownTap:(UITapGestureRecognizer*)recognizer {
++  [self handleAtomicTap:recognizer withType:@"android" keyType:0x14];
++}
+ - (void)handleCenterTap:(UITapGestureRecognizer*)recognizer {
+-  // Send a DPAD_CENTER key event so Flutter's focus/Shortcuts systems can
+-  // activate the focused widget, in addition to the LibertyGlobal-style
+-  // gamepad-touch broadcast that a custom app can still listen for.
+-  // Android KEYCODE_DPAD_CENTER = 23 (0x17) → Flutter's LogicalKeyboardKey.select.
++  // Forward center/select lifecycle over the legacy gamepad-touch channel. On
++  // physical tvOS release builds this is the reliable path; Plezy turns click_s
++  // and click_e into a real KeyDown/KeyUp pair for long-press timers.
+   if (recognizer.state == UIGestureRecognizerStateBegan) {
+-    [self sendTap:0x17 withType:@"android" ofType:@"keydown"];
+     [self sendGamepadTouchesWithType:@"click_s" x:0 y:0];
+   } else if (recognizer.state == UIGestureRecognizerStateEnded) {
+-    [self sendTap:0x17 withType:@"android" ofType:@"keyup"];
+     [self sendGamepadTouchesWithType:@"click_e" x:0 y:0];
+   }
+ }
+@@ -1025,11 +1182,8 @@ - (void)handlePlayPauseTap:(UITapGestureRecognizer*)recognizer {
+   [self handleTap:recognizer withType:@"android" keyType:0x55];
+ }
+ - (void)handleMenuTap:(UITapGestureRecognizer*)recognizer {
+-  // pop route should be triggered on UI, to have correct behavior
+-  [self handleTap:recognizer withType:@"android" keyType:0x04];
+-  // Fire LogicalKeyboardKey.escape through the embedder/HardwareKeyboard
+-  // path so Focus/Shortcuts/Navigator see a real key event — the legacy
+-  // flutter/keyevent channel above is a no-op on modern Flutter.
++  // Back/Menu is also sent atomically on Began. Waiting for Ended on tvOS can
++  // delay release across route changes, which used to replay stale back input.
+   //
+   // Menu's gesture lifecycle on tvOS is unreliable: tvOS reserves
+   // long-press-Menu for "go home," and the OS frequently delays or
+@@ -1044,15 +1198,10 @@ - (void)handleMenuTap:(UITapGestureRecognizer*)recognizer {
+   // distinguish hold from tap on Menu, treat every Menu recognition as
+   // an atomic tap: emit keydown + keyup together on StateBegan and stop
+   // tracking lifecycle from there.
+-  if (@available(tvOS 13.4, *)) {
+-    if (recognizer.state == UIGestureRecognizerStateBegan) {
+-      [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
+-                                physical:0x00070029ULL  // Keyboard ESCAPE
+-                                 logical:0x10000001BULL]; // LogicalKeyboardKey.escape
+-      [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp
+-                                physical:0x00070029ULL
+-                                 logical:0x10000001BULL];
+-    }
++  if (recognizer.state == UIGestureRecognizerStateBegan) {
++    [self releaseAllSynthesizedPresses];
++    [self sendTap:0x04 withType:@"android" ofType:@"keydown"];
++    [self sendTap:0x04 withType:@"android" ofType:@"keyup"];
+   }
+ }
+ - (void)handlePageUpTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(14.3)) {
+@@ -1098,7 +1247,6 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+         }
+         [strongSelf sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
+       };
+-  [self setupDirectionalGamepadFallbacks:gamepad];
+ }
+ 
+ - (void)setupControllers {  // TODO: dangerous, multiple registrations can happen!
+@@ -1108,6 +1256,7 @@ - (void)setupControllers {  // TODO: dangerous, multiple registrations can happe
+     if (gamepad != nil) {
+       atLeastOne = true;
+       [self setupTouchesWithGamepad:gamepad];
++      [self setupDirectionalGamepadFallbacks:gamepad];
+     }
+   }
+   if (!atLeastOne) {
+@@ -1190,15 +1339,15 @@ - (void)viewDidLoad {
+   TRACE_EVENT0("flutter", "viewDidLoad");
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-  // Arrow press types (Up/Down/Left/Right) intentionally have NO gesture
+-  // recognizer here — they're handled exclusively by the pressesBegan/Ended
+-  // overrides which call maybeSynthesizeForPress → sendSynthesizedKeyEventOfType
+-  // (the embedder key-data channel that flows into HardwareKeyboard cleanly).
+-  // The previous handleLeftTap/etc. emitted via the legacy flutter/keyevent
+-  // macOS-keymap channel which doesn't surface on modern HardwareKeyboard
+-  // reliably, and competing recognizers on the same view caused subtle
+-  // double-fire and timing races.
++  // Directional press recognizers use the legacy android keyevent channel
++  // atomically on Began. Physical tvOS release builds reliably deliver those;
++  // the UIKit presses overrides below still consume the same remote presses so
++  // raw iOS-plane fallback keys do not leak into Flutter.
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++  [self createRecognizerFor:UIPressTypeLeftArrow action:@selector(handleLeftTap:)];
++  [self createRecognizerFor:UIPressTypeRightArrow action:@selector(handleRightTap:)];
++  [self createRecognizerFor:UIPressTypeUpArrow action:@selector(handleUpTap:)];
++  [self createRecognizerFor:UIPressTypeDownArrow action:@selector(handleDownTap:)];
+   [self createRecognizerFor:UIPressTypeSelect action:@selector(handleCenterTap:)];
+   [self createRecognizerFor:UIPressTypePlayPause action:@selector(handlePlayPauseTap:)];
+   [self createRecognizerFor:UIPressTypeMenu action:@selector(handleMenuTap:)];
+@@ -2496,21 +2645,29 @@ - (void)superPressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEven
+ // both places to capture keys both inside and outside of a text field, but have
+ // slightly different implementations.
+ //
+-// Note: on tvOS, routing Siri Remote presses through handlePressEvent is what
+-// enables HardwareKeyboard.instance (the modern key path used by Focus and
+-// Shortcuts) to receive Select/arrow/etc. The UIPressGestureRecognizer-based
+-// legacy keyEventChannel tap path still fires in parallel; that's harmless.
++// Note: on tvOS, Siri Remote presses are synthesized directly from UIPress.type
++// so HardwareKeyboard.instance (the modern key path used by Focus and Shortcuts)
++// receives Select/arrow/etc. The UIPressGestureRecognizer-based legacy
++// gamepadtouchevent tap path still fires in parallel; that's harmless.
+ 
+ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++    NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+     for (UIPress* press in presses) {
+-      [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeDown];
++      if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeDown]) {
++        [synthesizedPresses addObject:press];
++      }
+     }
+ #endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([synthesizedPresses containsObject:press]) {
++        continue;
++      }
++#endif
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]
+                   nextAction:^() {
+                     [weakSelf superPressesBegan:[NSSet setWithObject:press] withEvent:event];
+@@ -2526,6 +2683,13 @@ - (void)pressesChanged:(NSSet<UIPress*>*)presses
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++      uint64_t physical = 0;
++      uint64_t logical = 0;
++      if ([self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
++        continue;
++      }
++#endif
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]
+                   nextAction:^() {
+                     [weakSelf superPressesChanged:[NSSet setWithObject:press] withEvent:event];
+@@ -2540,12 +2704,20 @@ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++    NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+     for (UIPress* press in presses) {
+-      [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp];
++      if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp]) {
++        [synthesizedPresses addObject:press];
++      }
+     }
+ #endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([synthesizedPresses containsObject:press]) {
++        continue;
++      }
++#endif
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]
+                   nextAction:^() {
+                     [weakSelf superPressesEnded:[NSSet setWithObject:press] withEvent:event];
+@@ -2560,12 +2732,20 @@ - (void)pressesCancelled:(NSSet<UIPress*>*)presses
+                withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++    NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+     for (UIPress* press in presses) {
+-      [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp];
++      if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp]) {
++        [synthesizedPresses addObject:press];
++      }
+     }
+ #endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([synthesizedPresses containsObject:press]) {
++        continue;
++      }
++#endif
+       [self handlePressEvent:[[FlutterUIPressProxy alloc] initWithPress:press event:event]
+                   nextAction:^() {
+                     [weakSelf superPressesCancelled:[NSSet setWithObject:press] withEvent:event];
