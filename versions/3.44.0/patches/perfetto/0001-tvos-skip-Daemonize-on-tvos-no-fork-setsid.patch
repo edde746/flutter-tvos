@@ -1,4 +1,4 @@
-From e6746515816b13f30a59ba3961c474fdb61be62c Mon Sep 17 00:00:00 2001
+From 403d95ccb381a46c22dc3a8aa5cf9ba1e26214ad Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Fri, 24 Apr 2026 12:43:32 +0200
 Subject: [PATCH] tvos: skip Daemonize on tvos (no fork/setsid)

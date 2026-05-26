@@ -1,4 +1,4 @@
-From b46d45358676454f1e134b732fff04680302c054 Mon Sep 17 00:00:00 2001
+From 52065a0c375648d4595c37b96c9ae65f25c9b5d0 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:07:09 +0200
 Subject: [PATCH 2/3] tvos: define DART_HOST_OS_TV and guard execvp
