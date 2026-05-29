@@ -1,0 +1,241 @@
+From d42c1d2f83bfba1ca4476a83803d3f53bf6d283c Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 29 May 2026 06:40:59 +0200
+Subject: [PATCH 44/47] tvos: enable controller UIEvent delivery
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
+index 07b90b3f..f5cf20d7 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
+@@ -6,6 +6,9 @@
+ #define FLUTTER_SHELL_PLATFORM_DARWIN_IOS_FRAMEWORK_HEADERS_FLUTTERVIEWCONTROLLER_H_
+ 
+ #import <UIKit/UIKit.h>
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++#import <GameController/GCEventViewController.h>
++#endif
+ #include <sys/cdefs.h>
+ 
+ #import "FlutterBinaryMessenger.h"
+@@ -50,7 +53,9 @@ extern NSNotificationName const FlutterSemanticsUpdateNotification;
+  * FlutterViewController and other `UIViewController`s.
+  */
+ FLUTTER_DARWIN_EXPORT
+-#if defined(__IPHONE_13_4) && __IPHONE_13_4 && !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++@interface FlutterViewController : GCEventViewController <FlutterTextureRegistry, FlutterPluginRegistry>
++#elif defined(__IPHONE_13_4) && __IPHONE_13_4
+ @interface FlutterViewController
+     : UIViewController <FlutterTextureRegistry, FlutterPluginRegistry, UIGestureRecognizerDelegate>
+ #else
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 3b8f0c55..d5f40650 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -12,7 +12,6 @@
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+ #include <GameController/GameController.h>
+ #include <MediaPlayer/MediaPlayer.h>
+-#import <objc/runtime.h>
+ #endif
+ 
+ #include "flutter/common/constants.h"
+@@ -94,7 +93,6 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+                           physical:(uint64_t)physical
+                            logical:(uint64_t)logical
+               tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4));
+-- (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
+ #endif
+@@ -207,142 +205,6 @@ - (void)handleKeyboardAnimationCallbackWithTargetTime:(fml::TimePoint)targetTime
+ #endif
+ @end
+ 
+-#if defined(TARGET_OS_TV) && TARGET_OS_TV
+-static FlutterViewController* FlutterTvosFlutterViewControllerForResponder(UIResponder* responder) {
+-  UIResponder* current = responder;
+-  while (current != nil) {
+-    if ([current isKindOfClass:[FlutterViewController class]]) {
+-      return (FlutterViewController*)current;
+-    }
+-    current = current.nextResponder;
+-  }
+-  return nil;
+-}
+-
+-static FlutterViewController* FlutterTvosFindFlutterViewController(UIViewController* controller) {
+-  if (controller == nil) {
+-    return nil;
+-  }
+-  if ([controller isKindOfClass:[FlutterViewController class]]) {
+-    return (FlutterViewController*)controller;
+-  }
+-
+-  FlutterViewController* presented =
+-      FlutterTvosFindFlutterViewController(controller.presentedViewController);
+-  if (presented != nil) {
+-    return presented;
+-  }
+-
+-  if ([controller isKindOfClass:[UINavigationController class]]) {
+-    FlutterViewController* selected = FlutterTvosFindFlutterViewController(
+-        ((UINavigationController*)controller).visibleViewController);
+-    if (selected != nil) {
+-      return selected;
+-    }
+-  } else if ([controller isKindOfClass:[UITabBarController class]]) {
+-    FlutterViewController* selected = FlutterTvosFindFlutterViewController(
+-        ((UITabBarController*)controller).selectedViewController);
+-    if (selected != nil) {
+-      return selected;
+-    }
+-  }
+-
+-  for (UIViewController* child in controller.childViewControllers) {
+-    FlutterViewController* match = FlutterTvosFindFlutterViewController(child);
+-    if (match != nil) {
+-      return match;
+-    }
+-  }
+-  return nil;
+-}
+-
+-static FlutterViewController* FlutterTvosFlutterViewControllerForPress(UIPress* press,
+-                                                                        UIWindow* window) {
+-  FlutterViewController* responderController =
+-      FlutterTvosFlutterViewControllerForResponder(press.responder);
+-  if (responderController != nil) {
+-    return responderController;
+-  }
+-  UIWindow* targetWindow = press.window;
+-  if (targetWindow == nil) {
+-    targetWindow = window;
+-  }
+-  return FlutterTvosFindFlutterViewController(targetWindow.rootViewController);
+-}
+-
+-static BOOL FlutterTvosHandlePressesEvent(UIEvent* event, UIWindow* window) API_AVAILABLE(tvos(13.4)) {
+-  if (@available(tvOS 13.4, *)) {
+-    if (event.type != UIEventTypePresses || ![event respondsToSelector:@selector(allPresses)]) {
+-      return NO;
+-    }
+-
+-    BOOL handledAny = NO;
+-    BOOL hasUnhandledPress = NO;
+-    NSSet<UIPress*>* allPresses = ((UIPressesEvent*)event).allPresses;
+-    for (UIPress* press in allPresses) {
+-      FlutterViewController* viewController = FlutterTvosFlutterViewControllerForPress(press, window);
+-      if (viewController == nil) {
+-        hasUnhandledPress = YES;
+-        continue;
+-      }
+-      if ([viewController tvosHandlePressFromUIEvent:press]) {
+-        handledAny = YES;
+-      } else {
+-        hasUnhandledPress = YES;
+-      }
+-    }
+-    return handledAny && !hasUnhandledPress;
+-  }
+-  return NO;
+-}
+-
+-@implementation UIApplication (FlutterTvosPressEvents)
+-+ (void)load {
+-  static dispatch_once_t onceToken;
+-  dispatch_once(&onceToken, ^{
+-    Method original = class_getInstanceMethod([UIApplication class], @selector(sendEvent:));
+-    Method swizzled = class_getInstanceMethod([UIApplication class], @selector(flutterTvos_sendEvent:));
+-    if (original != nil && swizzled != nil) {
+-      method_exchangeImplementations(original, swizzled);
+-    }
+-  });
+-}
+-
+-- (void)flutterTvos_sendEvent:(UIEvent*)event {
+-  BOOL handled = NO;
+-  if (@available(tvOS 13.4, *)) {
+-    handled = FlutterTvosHandlePressesEvent(event, nil);
+-  }
+-  if (!handled) {
+-    [self flutterTvos_sendEvent:event];
+-  }
+-}
+-@end
+-
+-@implementation UIWindow (FlutterTvosPressEvents)
+-+ (void)load {
+-  static dispatch_once_t onceToken;
+-  dispatch_once(&onceToken, ^{
+-    Method original = class_getInstanceMethod([UIWindow class], @selector(sendEvent:));
+-    Method swizzled = class_getInstanceMethod([UIWindow class], @selector(flutterTvos_sendEvent:));
+-    if (original != nil && swizzled != nil) {
+-      method_exchangeImplementations(original, swizzled);
+-    }
+-  });
+-}
+-
+-- (void)flutterTvos_sendEvent:(UIEvent*)event {
+-  BOOL handled = NO;
+-  if (@available(tvOS 13.4, *)) {
+-    handled = FlutterTvosHandlePressesEvent(event, self);
+-  }
+-  if (!handled) {
+-    [self flutterTvos_sendEvent:event];
+-  }
+-}
+-@end
+-#endif  // TARGET_OS_TV
+-
+ @implementation FlutterViewController {
+   flutter::ViewportMetrics _viewportMetrics;
+   MouseState _mouseState;
+@@ -1255,38 +1117,6 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+   return NO;
+ }
+ 
+-- (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
+-  if (@available(tvOS 13.4, *)) {
+-    if ([self shouldPassMenuPressToSystem:press]) {
+-      return NO;
+-    }
+-    uint64_t physical = 0;
+-    uint64_t logical = 0;
+-    if (![self physicalLogicalForPressType:press.type physical:&physical logical:&logical]) {
+-      return NO;
+-    }
+-
+-    switch (press.phase) {
+-      case UIPressPhaseBegan:
+-      case UIPressPhaseChanged:
+-      case UIPressPhaseStationary:
+-        return [self synthesizeRemotePressType:press.type
+-                                     eventType:kFlutterKeyEventTypeDown
+-                                      physical:physical
+-                                       logical:logical
+-                          tapIfMissingKeyDown:NO];
+-      case UIPressPhaseEnded:
+-      case UIPressPhaseCancelled:
+-        return [self synthesizeRemotePressType:press.type
+-                                     eventType:kFlutterKeyEventTypeUp
+-                                      physical:physical
+-                                       logical:logical
+-                          tapIfMissingKeyDown:YES];
+-    }
+-  }
+-  return NO;
+-}
+-
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -1479,6 +1309,7 @@ - (void)viewDidLoad {
+   TRACE_EVENT0("flutter", "viewDidLoad");
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++  self.controllerUserInteractionEnabled = YES;
+   // D-pad arrows, Select, and Menu are synthesized from UIPressesEvent below.
+   // Avoid registering gesture recognizers or GameController button fallbacks for
+   // those buttons; competing paths were observed to miss or double-fire on tvOS.

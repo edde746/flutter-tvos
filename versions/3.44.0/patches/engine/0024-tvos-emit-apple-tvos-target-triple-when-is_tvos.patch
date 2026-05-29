@@ -1,7 +1,7 @@
-From f14ce046b265a57d465bf1d55881783db7493a1d Mon Sep 17 00:00:00 2001
+From 1891694f6ddab90d340572abdb9ee028ddb54ee8 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:00:45 +0200
-Subject: [PATCH 24/40] tvos: emit apple-tvos target triple when is_tvos
+Subject: [PATCH 24/47] tvos: emit apple-tvos target triple when is_tvos
 
 
 diff --git a/engine/src/build/config/compiler/BUILD.gn b/engine/src/build/config/compiler/BUILD.gn

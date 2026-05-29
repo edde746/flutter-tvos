@@ -1,0 +1,180 @@
+From 3253d8dd0a476bf2153726932e6163693c687b5e Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 29 May 2026 06:56:09 +0200
+Subject: [PATCH 45/47] tvos: route window UIEvent remote presses
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index d5f40650..0d6ee7f3 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -12,6 +12,7 @@
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+ #include <GameController/GameController.h>
+ #include <MediaPlayer/MediaPlayer.h>
++#import <objc/runtime.h>
+ #endif
+ 
+ #include "flutter/common/constants.h"
+@@ -93,6 +94,7 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+                           physical:(uint64_t)physical
+                            logical:(uint64_t)logical
+               tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4));
++- (BOOL)tvosHandleWindowPressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate>
+ #endif
+@@ -205,6 +207,94 @@ - (void)handleKeyboardAnimationCallbackWithTargetTime:(fml::TimePoint)targetTime
+ #endif
+ @end
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++static FlutterViewController* FlutterTvosFindFlutterViewController(UIViewController* viewController) {
++  if (viewController == nil) {
++    return nil;
++  }
++
++  UIViewController* presentedViewController = viewController.presentedViewController;
++  if (presentedViewController != nil) {
++    return FlutterTvosFindFlutterViewController(presentedViewController);
++  }
++
++  if ([viewController isKindOfClass:[FlutterViewController class]]) {
++    return (FlutterViewController*)viewController;
++  }
++
++  if ([viewController isKindOfClass:[UINavigationController class]]) {
++    UINavigationController* navigationController = (UINavigationController*)viewController;
++    FlutterViewController* flutterViewController =
++        FlutterTvosFindFlutterViewController(navigationController.visibleViewController);
++    if (flutterViewController != nil) {
++      return flutterViewController;
++    }
++  }
++
++  if ([viewController isKindOfClass:[UITabBarController class]]) {
++    UITabBarController* tabBarController = (UITabBarController*)viewController;
++    FlutterViewController* flutterViewController =
++        FlutterTvosFindFlutterViewController(tabBarController.selectedViewController);
++    if (flutterViewController != nil) {
++      return flutterViewController;
++    }
++  }
++
++  for (UIViewController* childViewController in viewController.childViewControllers) {
++    FlutterViewController* flutterViewController =
++        FlutterTvosFindFlutterViewController(childViewController);
++    if (flutterViewController != nil) {
++      return flutterViewController;
++    }
++  }
++
++  return nil;
++}
++
++@interface UIWindow (FlutterTvosPressEvents)
++@end
++
++@implementation UIWindow (FlutterTvosPressEvents)
++
+++ (void)load {
++  static dispatch_once_t onceToken;
++  dispatch_once(&onceToken, ^{
++    Method originalMethod = class_getInstanceMethod(self, @selector(sendEvent:));
++    Method replacementMethod = class_getInstanceMethod(self, @selector(flutterTvos_sendEvent:));
++    if (originalMethod == nil || replacementMethod == nil) {
++      return;
++    }
++    method_exchangeImplementations(originalMethod, replacementMethod);
++  });
++}
++
++- (void)flutterTvos_sendEvent:(UIEvent*)event {
++  if (@available(tvOS 13.4, *)) {
++    if (event.type == UIEventTypePresses && [event respondsToSelector:@selector(allPresses)]) {
++      FlutterViewController* flutterViewController =
++          FlutterTvosFindFlutterViewController(self.rootViewController);
++      NSSet<UIPress*>* allPresses = ((UIPressesEvent*)event).allPresses;
++      BOOL handledPress = NO;
++      BOOL unhandledPress = NO;
++      for (UIPress* press in allPresses) {
++        if ([flutterViewController tvosHandleWindowPressFromUIEvent:press]) {
++          handledPress = YES;
++        } else {
++          unhandledPress = YES;
++        }
++      }
++      if (handledPress && !unhandledPress) {
++        return;
++      }
++    }
++  }
++
++  [self flutterTvos_sendEvent:event];
++}
++
++@end
++#endif  // TARGET_OS_TV
++
+ @implementation FlutterViewController {
+   flutter::ViewportMetrics _viewportMetrics;
+   MouseState _mouseState;
+@@ -1093,7 +1183,7 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+                          eventType:(FlutterKeyEventType)type
+                           physical:(uint64_t)physical
+                            logical:(uint64_t)logical
+-              tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4)) {
++               tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+     NSNumber* key = @(physical);
+     BOOL hasKeyDown = [self.synthesizedPressedKeys containsObject:key];
+@@ -1117,6 +1207,40 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+   return NO;
+ }
+ 
++- (BOOL)tvosHandleWindowPressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
++  if (@available(tvOS 13.4, *)) {
++    if ([self shouldPassMenuPressToSystem:press]) {
++      return NO;
++    }
++
++    uint64_t physical = 0;
++    uint64_t logical = 0;
++    if (![self physicalLogicalForPressType:press.type physical:&physical logical:&logical]) {
++      return NO;
++    }
++
++    switch (press.phase) {
++      case UIPressPhaseBegan:
++        return [self synthesizeRemotePressType:press.type
++                                     eventType:kFlutterKeyEventTypeDown
++                                      physical:physical
++                                       logical:logical
++                          tapIfMissingKeyDown:NO];
++      case UIPressPhaseEnded:
++      case UIPressPhaseCancelled:
++        return [self synthesizeRemotePressType:press.type
++                                     eventType:kFlutterKeyEventTypeUp
++                                      physical:physical
++                                       logical:logical
++                          tapIfMissingKeyDown:YES];
++      case UIPressPhaseChanged:
++      case UIPressPhaseStationary:
++        return YES;
++    }
++  }
++  return NO;
++}
++
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -2611,7 +2735,7 @@ - (void)superPressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEven
+ // slightly different implementations.
+ //
+ // Note: on tvOS, Siri Remote presses are synthesized directly from UIEvent /
+-// UIPress.type in UIApplication.sendEvent above so HardwareKeyboard.instance
++// UIPress.type in UIWindow.sendEvent above so HardwareKeyboard.instance
+ // receives Select/arrow/Menu/etc. These responder callbacks remain as a deduped
+ // fallback if UIKit also routes the press lifecycle to FlutterViewController.
+ 

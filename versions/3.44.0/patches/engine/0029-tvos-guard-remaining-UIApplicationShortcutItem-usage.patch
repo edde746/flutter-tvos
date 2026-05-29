@@ -1,7 +1,7 @@
-From 38928e4f695a262977f51064810bea90c5ef8109 Mon Sep 17 00:00:00 2001
+From 198c2ce0530b3e09a5a06138692a0615debc18f4 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:12:15 +0200
-Subject: [PATCH 29/40] tvos: guard remaining UIApplicationShortcutItem usage
+Subject: [PATCH 29/47] tvos: guard remaining UIApplicationShortcutItem usage
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate_internal.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate_internal.h

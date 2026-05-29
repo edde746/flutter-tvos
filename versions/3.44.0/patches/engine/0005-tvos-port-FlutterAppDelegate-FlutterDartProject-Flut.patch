@@ -1,7 +1,7 @@
-From 9f91d3beb7cdd40d0eaba3c36848e333353f4a94 Mon Sep 17 00:00:00 2001
+From b1a48f57f3045cccb9538feb6fe1fc14107a53e3 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 21:39:18 +0200
-Subject: [PATCH 05/40] tvos: port FlutterAppDelegate, FlutterDartProject,
+Subject: [PATCH 05/47] tvos: port FlutterAppDelegate, FlutterDartProject,
  FlutterPlatformPlugin
 
 

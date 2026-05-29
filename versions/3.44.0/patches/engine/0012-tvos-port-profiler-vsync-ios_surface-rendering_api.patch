@@ -1,7 +1,7 @@
-From 382a3ef23a2aae1c9b517e7c1141c6181c43dad8 Mon Sep 17 00:00:00 2001
+From 44f62735d8f2c630c3f92637c5e8814c24ade12c Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:00:50 +0200
-Subject: [PATCH 12/40] tvos: port profiler, vsync, ios_surface, rendering_api
+Subject: [PATCH 12/47] tvos: port profiler, vsync, ios_surface, rendering_api
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm
