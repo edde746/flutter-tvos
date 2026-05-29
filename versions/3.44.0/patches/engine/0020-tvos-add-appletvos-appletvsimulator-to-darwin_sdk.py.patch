@@ -1,7 +1,7 @@
 From d65479c04ac90e1a310932b8d88bafceb8f36c16 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:57:31 +0200
-Subject: [PATCH 20/47] tvos: add appletvos/appletvsimulator to darwin_sdk.py
+Subject: [PATCH 20/48] tvos: add appletvos/appletvsimulator to darwin_sdk.py
  SDKS
 
 

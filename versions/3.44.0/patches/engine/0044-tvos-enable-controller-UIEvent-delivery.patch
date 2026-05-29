@@ -1,7 +1,7 @@
 From d42c1d2f83bfba1ca4476a83803d3f53bf6d283c Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Fri, 29 May 2026 06:40:59 +0200
-Subject: [PATCH 44/47] tvos: enable controller UIEvent delivery
+Subject: [PATCH 44/48] tvos: enable controller UIEvent delivery
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
