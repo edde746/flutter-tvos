@@ -1,40 +1,47 @@
-# Flutter-tvOS engine patches — maintainer guide
+# flutter-plezy engine patches — maintainer guide
 
-This repo holds the **patch series** needed to build a Flutter engine that targets Apple TV (tvOS). It does **not** contain any upstream Flutter / Dart / Skia source — those are fetched on demand via gclient and patched locally.
+This repo holds the **per-platform patch series** for the custom Flutter engines Plezy ships: `tvos` (Apple TV — no official Flutter support exists) and `windows` (DirectComposition presentation so HDR mpv video composes under Flutter UI in one window). It does **not** contain any upstream Flutter / Dart / Skia source — those are fetched on demand via gclient and patched locally.
 
-If you are an agent asked to "bump to Flutter X.Y" or "fix a tvOS regression", read this whole file before touching anything.
+If you are an agent asked to "bump to Flutter X.Y" or "fix a tvOS/Windows regression", read this whole file before touching anything.
 
 ## Requirements
 
-- macOS with Xcode installed (provides the Apple SDKs that Flutter's engine build expects).
-- Python 3, git. No separate depot_tools install needed — `fetch-sources.sh` auto-clones it into `./depot_tools/` if `gclient` isn't already on `PATH`.
-- ~10 GB of free disk per version (engine clone + dart + skia + prebuilt toolchains + build output).
+- tvOS series: macOS with Xcode installed (provides the Apple SDKs that Flutter's engine build expects).
+- Windows series: Windows with Visual Studio 2022 (C++ workload) + Windows 10/11 SDK incl. Debugging Tools, `LongPathsEnabled=1`.
+- Python 3, git. No separate depot_tools install needed — `fetch-sources.{sh,ps1}` auto-clones it into `./depot_tools/` if `gclient` isn't already on `PATH`.
+- ~10 GB free disk per version on macOS; ~80–100 GB on Windows (bigger toolchain prebuilts + build output).
 
 ## Repo layout
 
 ```
-flutter-tvos/
+flutter-plezy/
 ├── CLAUDE.md                         # ← you are here
 ├── README.md                         # human-facing quickstart
 ├── scripts/
-│   ├── fetch-sources.sh <version>    # gclient sync the Flutter monorepo + deps into ./sources/<version>/
-│   ├── apply-patches.sh <version>    # git am the patch series onto the synced trees
-│   ├── regenerate-patches.sh <version>  # CAPTURE your source edits back into the patch series
-│   ├── build-engine.sh <version> <variant>  # wraps gn + ninja
-│   └── package.sh <version>          # tars the framework + gen_snapshot for release
+│   ├── fetch-sources.{sh,ps1} <version>     # gclient sync the Flutter monorepo + deps into ./sources/<version>/
+│   ├── apply-patches.{sh,ps1} <version> [platform]   # git am one platform's series (sh defaults tvos, ps1 defaults windows)
+│   ├── regenerate-patches.{sh,ps1} <version> [platform]  # CAPTURE your source edits back into that platform's series
+│   ├── build-engine.{sh,ps1} <version> <variant>  # wraps gn + ninja via versions/<v>/build.{sh,ps1}
+│   └── package.{sh,ps1} <version>    # bundle release artifacts (tvOS tarball / Windows cache-layout zip)
 ├── versions/
 │   └── 3.44.0/
-│       ├── sdk.lock                  # pinned engine/dart/skia commit SHAs
-│       ├── build.sh                  # variant-specific build orchestration for this release
+│       ├── sdk.lock                  # pinned engine/dart/skia commit SHAs (bash-sourceable KEY=VALUE; parsed by both script families)
+│       ├── build.sh                  # tvOS variant build orchestration (macOS)
+│       ├── build.ps1                 # Windows variant build orchestration
 │       └── patches/
-│           ├── engine/               # Flutter monorepo patches (git-format-patch series, NNNN-name.patch)
-│           ├── dart/                 # Dart SDK patches
-│           ├── skia/                 # Skia patches
-│           └── perfetto/             # Perfetto patches (nested in dart/third_party/perfetto/src)
+│           ├── tvos/
+│           │   ├── engine/           # Flutter monorepo patches (git-format-patch series, NNNN-name.patch)
+│           │   ├── dart/             # Dart SDK patches
+│           │   ├── skia/             # Skia patches
+│           │   └── perfetto/         # Perfetto patches (nested in dart/third_party/perfetto/src)
+│           └── windows/
+│               └── engine/           # Windows embedder patches (DComp presentation mode)
 ├── depot_tools/                      # (gitignored) auto-cloned if gclient not on PATH
 ├── sources/                          # (gitignored) gclient-synced upstream trees
-└── out/                              # (gitignored) ninja build output promoted here per variant
+└── out/                              # (gitignored) build output promoted here per variant
 ```
+
+**Per-platform regeneration rule:** `regenerate-patches` captures *everything* between the pinned base and HEAD of the source tree. So a platform's series must only ever be regenerated from a sources tree that has ONLY that platform's patches applied. In practice: the Windows machine applies/regenerates `windows/`, the macOS machine applies/regenerates `tvos/` — never both in one tree.
 
 After `fetch-sources.sh` finishes, source paths look like:
 
@@ -95,6 +102,16 @@ On Apple Silicon, the cross-compile `gen_snapshot_arm64` for tvOS ARM64 targets 
 - **`wantsExtendedDynamicRangeContent` is unavailable on tvOS** as of SDK 26.4 — any `CAMetalLayer` subclass override in app code must be `#if os(iOS)` (not `os(iOS) || os(tvOS)`).
 - **Press events on tvOS.** The original LibertyGlobal engine guarded out `pressesBegan/Changed/Ended/Cancelled` on tvOS. Our patch removes those guards so Flutter's `HardwareKeyboard` sees Siri Remote arrows / select. Without this, dpad navigation on tvOS is dead.
 - **tvOS `FlutterViewController.mm` center-tap** still fires a synthetic keycode 0x17 (DPAD_CENTER) via the `flutter/keyevent` channel (LibertyGlobal's legacy path — not removed). Apps that want Material-level widgets (bottom sheets, menu items) to activate on Siri Remote Select must add a `LogicalKeyboardKey.select → ActivateIntent` shortcut mapping; the default Flutter shortcut table only covers `enter` / `space`.
+
+## The Windows series (DComp presentation mode)
+
+Purpose: Plezy composites HDR mpv video (its own child-HWND flip swapchain — DWM layer 3) under Flutter UI. Stock Flutter presents blt-model into the redirection surface (layer 1, bottom-most), so nothing can render below it. The patch makes the embedder present into a premultiplied `CreateSwapChainForComposition` swapchain on an `IDCompositionTarget` (`topmost=TRUE`, layer 4) instead — UI alpha-blends over the video, window capture (Discord/OBS WGC) sees everything, and the app's legacy two-window/accent-hack compositing dies.
+
+- **Opt-in**: the mode activates only when `FLUTTER_WINDOWS_DCOMP=1` is set in the app's environment; otherwise the patched engine is behaviorally stock. Keep it that way — it is also the shape an upstream PR needs (flag-gated, no default change).
+- Patch surface: `engine/src/flutter/shell/platform/windows/` only (egl/manager, egl window surface, compositor present path). No dart/skia patches — which is why `verify_sdk_hash` is NOT overridden in `build.ps1` (prebuilt dart-sdk stays valid, unlike tvOS).
+- Variants: `host_debug` feeds the SDK cache dir `windows-x64` (used by `flutter run`); `host_release` feeds `windows-x64-release`. Build both or dev iteration will silently run a stock debug engine.
+- Consumer swap: extract the packaged zip over `<flutter-sdk>\bin\cache\artifacts\engine\windows-x64{,-release}\`. The flutter tool never hashes files (stamp-string check only) but `flutter upgrade`/`precache --force` silently restores stock — re-swap after SDK updates.
+- Watch out for: ANGLE's `EGL_EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE` orientation flip (Y-inverted first renders), resize (`ResizeBuffers` must follow `FlutterWindowsView::ResizeRenderSurface`), and Canonical's in-flight windowing rework touching neighboring files on rebases.
 
 ## What lives in the consumer app, not here
 

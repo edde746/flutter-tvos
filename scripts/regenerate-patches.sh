@@ -12,7 +12,8 @@
 #
 # DO NOT hand-edit versions/*/patches/*.patch. They are generated.
 #
-# Usage: scripts/regenerate-patches.sh 3.41.6
+# Usage: scripts/regenerate-patches.sh 3.41.6 [platform]
+#   platform: tvos (default) | windows
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +22,7 @@ source "${SCRIPT_DIR}/_common.sh"
 
 VERSION="${1-}"
 require_arg "$VERSION"
+PLATFORM="${2:-tvos}"
 load_sdk_lock "$VERSION"
 
 regen() {

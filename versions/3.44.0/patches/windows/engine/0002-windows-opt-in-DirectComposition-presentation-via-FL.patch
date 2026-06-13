@@ -1,0 +1,66 @@
+From 6cd3b4e71857f7bbee90fdbd9ce0f200c9075c35 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Sat, 13 Jun 2026 02:12:05 +0200
+Subject: [PATCH 2/2] windows: opt-in DirectComposition presentation via
+ FLUTTER_WINDOWS_DCOMP
+
+When the FLUTTER_WINDOWS_DCOMP environment variable is set, create the
+ANGLE window surface with EGL_DIRECT_COMPOSITION_ANGLE. ANGLE then
+presents through a premultiplied-alpha CreateSwapChainForComposition
+swapchain on an IDCompositionTarget(topmost=TRUE) visual bound to the
+view window, instead of an opaque HWND swapchain.
+
+The view's per-pixel alpha is honored against native content composed
+below it within the same top-level window (e.g. a video child HWND's
+flip-model swapchain), and window capture (WGC/PrintWindow) sees the
+fully composed result. Without the environment variable, behavior is
+stock.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+diff --git a/engine/src/flutter/shell/platform/windows/egl/manager.cc b/engine/src/flutter/shell/platform/windows/egl/manager.cc
+index 64fb765b..aa0f1559 100644
+--- a/engine/src/flutter/shell/platform/windows/egl/manager.cc
++++ b/engine/src/flutter/shell/platform/windows/egl/manager.cc
+@@ -287,20 +287,33 @@ std::unique_ptr<WindowSurface> Manager::CreateWindowSurface(HWND hwnd,
+     return nullptr;
+   }
+ 
++  // Opt-in DirectComposition presentation: instead of an opaque HWND
++  // swapchain, ANGLE presents through a premultiplied-alpha composition
++  // swapchain on an IDCompositionTarget(topmost=TRUE) visual bound to the
++  // view window. The view's per-pixel alpha is then honored against native
++  // content composed below it in the same top-level window (e.g. a video
++  // child HWND's flip swapchain), and window capture sees the composed
++  // result. Without the environment variable this is behaviorally stock.
++  const bool use_direct_composition =
++      ::GetEnvironmentVariableW(L"FLUTTER_WINDOWS_DCOMP", nullptr, 0) > 0;
++
+   // Disable ANGLE's automatic surface resizing and provide an explicit size.
+   // The surface will need to be destroyed and re-created if the HWND is
+   // resized.
+-  const EGLint surface_attributes[] = {EGL_FIXED_SIZE_ANGLE,
+-                                       EGL_TRUE,
+-                                       EGL_WIDTH,
+-                                       static_cast<EGLint>(width),
+-                                       EGL_HEIGHT,
+-                                       static_cast<EGLint>(height),
+-                                       EGL_NONE};
++  std::vector<EGLint> surface_attributes = {
++      EGL_FIXED_SIZE_ANGLE, EGL_TRUE,
++      EGL_WIDTH,            static_cast<EGLint>(width),
++      EGL_HEIGHT,           static_cast<EGLint>(height),
++  };
++  if (use_direct_composition) {
++    surface_attributes.push_back(EGL_DIRECT_COMPOSITION_ANGLE);
++    surface_attributes.push_back(EGL_TRUE);
++  }
++  surface_attributes.push_back(EGL_NONE);
+ 
+   auto const surface = ::eglCreateWindowSurface(
+       display_, config_, static_cast<EGLNativeWindowType>(hwnd),
+-      surface_attributes);
++      surface_attributes.data());
+   if (surface == EGL_NO_SURFACE) {
+     LogEGLError("Surface creation failed.");
+     return nullptr;

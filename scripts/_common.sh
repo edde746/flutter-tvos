@@ -59,8 +59,9 @@ perfetto_src_dir() {
 
 patches_dir() {
   local version="$1"
-  local component="$2"  # engine | dart | skia
-  echo "${REPO_ROOT}/versions/${version}/patches/${component}"
+  local component="$2"  # engine | dart | skia | perfetto
+  # PLATFORM selects the patch series: tvos (default) | windows.
+  echo "${REPO_ROOT}/versions/${version}/patches/${PLATFORM:-tvos}/${component}"
 }
 
 ensure_depot_tools_on_path() {
