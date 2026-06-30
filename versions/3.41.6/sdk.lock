@@ -1,6 +1,6 @@
 # Pinned upstream commits for Flutter 3.41.6 + its engine dependencies.
-# Sourced by scripts/_common.sh → fetch-sources.sh / apply-patches.sh /
-# regenerate-patches.sh / build.sh.
+# Read by engine.py (fetch / apply / regenerate / build). KEY=VALUE lines,
+# still bash-sourceable.
 #
 # When bumping to a new Flutter release, update ALL four refs together and
 # keep them consistent: the engine pins the dart/skia SHAs inside its DEPS.

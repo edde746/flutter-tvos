@@ -1,5 +1,5 @@
 # Fetched upstream sources + build output.
-# `scripts/fetch-sources.sh` writes here; never commit it.
+# `engine.py fetch` writes here; never commit it.
 /sources/
 /out/
 /build/

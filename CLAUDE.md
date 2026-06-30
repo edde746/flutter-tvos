@@ -8,7 +8,7 @@ If you are an agent asked to "bump to Flutter X.Y" or "fix a tvOS/Windows regres
 
 - tvOS series: macOS with Xcode installed (provides the Apple SDKs that Flutter's engine build expects).
 - Windows series: Windows with Visual Studio 2022 (C++ workload) + Windows 10/11 SDK incl. Debugging Tools, `LongPathsEnabled=1`.
-- Python 3, git. No separate depot_tools install needed — `fetch-sources.{sh,ps1}` auto-clones it into `./depot_tools/` if `gclient` isn't already on `PATH`.
+- Python 3.8+, git. All tooling is one cross-platform CLI, `engine.py` at the repo root (no third-party deps — stdlib only). No separate depot_tools install needed — `engine.py fetch` (and `build`) auto-clone it into `./depot_tools/` if `gclient` isn't already on `PATH`.
 - ~10 GB free disk per version on macOS; ~80–100 GB on Windows (bigger toolchain prebuilts + build output).
 
 ## Repo layout
@@ -17,17 +17,16 @@ If you are an agent asked to "bump to Flutter X.Y" or "fix a tvOS/Windows regres
 flutter-plezy/
 ├── CLAUDE.md                         # ← you are here
 ├── README.md                         # human-facing quickstart
-├── scripts/
-│   ├── fetch-sources.{sh,ps1} <version>     # gclient sync the Flutter monorepo + deps into ./sources/<version>/
-│   ├── apply-patches.{sh,ps1} <version> [platform]   # git am one platform's series (sh defaults tvos, ps1 defaults windows)
-│   ├── regenerate-patches.{sh,ps1} <version> [platform]  # CAPTURE your source edits back into that platform's series
-│   ├── build-engine.{sh,ps1} <version> <variant>  # wraps gn + ninja via versions/<v>/build.{sh,ps1}
-│   └── package.{sh,ps1} <version>    # bundle release artifacts (tvOS tarball / Windows cache-layout zip)
+├── engine.py                         # the one cross-platform CLI (subcommands below); stdlib only
+│   # engine.py fetch <version>                       gclient sync the Flutter monorepo + deps into ./sources/<version>/
+│   # engine.py apply <version> [--platform tvos|windows]    git am one platform's series (default: by host OS)
+│   # engine.py regenerate <version> [--platform …]   CAPTURE your source edits back into that platform's series
+│   # engine.py build <version> <variant>             gn + ninja via versions/<v>/build.py (host OS picks the variant set)
+│   # engine.py package <version> [--platform …]      bundle release artifacts (tvOS tarball / Windows cache-layout zip)
 ├── versions/
 │   └── 3.44.0/
-│       ├── sdk.lock                  # pinned engine/dart/skia commit SHAs (bash-sourceable KEY=VALUE; parsed by both script families)
-│       ├── build.sh                  # tvOS variant build orchestration (macOS)
-│       ├── build.ps1                 # Windows variant build orchestration
+│       ├── sdk.lock                  # pinned engine/dart/skia commit SHAs (bash-sourceable KEY=VALUE; parsed by engine.py)
+│       ├── build.py                  # per-version variant table (tvOS keyed under "darwin", Windows under "win32")
 │       └── patches/
 │           ├── tvos/
 │           │   ├── engine/           # Flutter monorepo patches (git-format-patch series, NNNN-name.patch)
@@ -41,9 +40,9 @@ flutter-plezy/
 └── out/                              # (gitignored) build output promoted here per variant
 ```
 
-**Per-platform regeneration rule:** `regenerate-patches` captures *everything* between the pinned base and HEAD of the source tree. So a platform's series must only ever be regenerated from a sources tree that has ONLY that platform's patches applied. In practice: the Windows machine applies/regenerates `windows/`, the macOS machine applies/regenerates `tvos/` — never both in one tree.
+**Per-platform regeneration rule:** `regenerate` captures *everything* between the pinned base and HEAD of the source tree. So a platform's series must only ever be regenerated from a sources tree that has ONLY that platform's patches applied. In practice: the Windows machine applies/regenerates `windows/`, the macOS machine applies/regenerates `tvos/` — never both in one tree.
 
-After `fetch-sources.sh` finishes, source paths look like:
+After `fetch` finishes, source paths look like:
 
 - `sources/<v>/engine/src/flutter/`                — engine source (its own git repo)
 - `sources/<v>/engine/src/flutter/third_party/dart/`  — dart SDK (its own git repo)
@@ -59,10 +58,10 @@ The monorepo root (`sources/<v>/`, where `.gclient` lives) is **also** a git rep
 
 The workflow is always:
 
-1. `scripts/fetch-sources.sh 3.44.0` — gclient-sync upstream into `./sources/3.44.0/`
-2. `scripts/apply-patches.sh 3.44.0` — git-am the current patch series
+1. `python engine.py fetch 3.44.0` — gclient-sync upstream into `./sources/3.44.0/`
+2. `python engine.py apply 3.44.0` — git-am the current patch series (defaults to the host's series; `--platform` to override)
 3. Edit freely inside `sources/3.44.0/` (engine patches), `sources/3.44.0/engine/src/flutter/third_party/dart/`, or `.../skia/`. Commit your changes **inside those checkouts** (`git commit` in the source tree, not in this repo).
-4. `scripts/regenerate-patches.sh 3.44.0` — writes the updated patch series back into `versions/3.44.0/patches/` by running `git format-patch` against the pinned bases in `sdk.lock`.
+4. `python engine.py regenerate 3.44.0` — writes the updated patch series back into `versions/3.44.0/patches/` by running `git format-patch` against the pinned bases in `sdk.lock`.
 5. `git add versions/ && git commit` in this repo.
 
 Why this matters: the patch files are *generated artifacts*. Editing them by hand will drift from what the source tree actually builds, conflicts will bite on the next rebase, and the engine you ship will not match the diff you think you're shipping. If you see a patch that needs changing, make the change in `./sources/` and regenerate.
@@ -73,16 +72,19 @@ Example: bump 3.44.0 → 3.45.0.
 
 1. `cp -r versions/3.44.0 versions/3.45.0`
 2. Edit `versions/3.45.0/sdk.lock` — update the engine ref to the new Flutter git tag `3.45.0` (and `ENGINE_COMMIT` to the SHA that tag points at). For `DART_COMMIT` and `SKIA_COMMIT`, read the new monorepo's `DEPS` file (at its root for the post-monorepo layout) to find what gclient will resolve — keep them in sync.
-3. `scripts/fetch-sources.sh 3.45.0` — pulls the new upstream commits.
-4. `scripts/apply-patches.sh 3.45.0` — tries to apply the old patches onto the new sources.
+3. `python engine.py fetch 3.45.0` — pulls the new upstream commits.
+4. `python engine.py apply 3.45.0` — tries to apply the old patches onto the new sources.
 5. Expect conflicts. Resolve them in `./sources/` using normal git tools (`git am --3way --continue`, `git apply --3way --reject` + manual fixup). Write the fixes **as source-tree edits**.
-6. `scripts/regenerate-patches.sh 3.45.0` — captures the new patch series, now pinned to the new upstream bases.
-7. Build each variant (`scripts/build-engine.sh 3.45.0 tvos_release` etc.), verify the app still runs on simulator + device.
-8. Commit `versions/3.45.0/` to this repo. Leave `versions/3.44.0/` alone — we keep history per version.
+6. `python engine.py regenerate 3.45.0` — captures the new patch series, now pinned to the new upstream bases.
+7. If a variant's gn args / ninja targets changed for the new release, edit the variant table in `versions/3.45.0/build.py` (carried over by the `cp` in step 1).
+8. Build each variant (`python engine.py build 3.45.0 tvos_release` etc.), verify the app still runs on simulator + device.
+9. Commit `versions/3.45.0/` to this repo. Leave `versions/3.44.0/` alone — we keep history per version.
 
 ## Variants we build
 
-Each variant has its own GN config. The standard four are:
+Variants are declared in `versions/<v>/build.py` as a `VARIANTS` table keyed by host platform (`darwin` for the tvOS set, `win32` for the Windows set), each entry giving the gn flags, ninja targets, whether to override `verify_sdk_hash`, and what to promote to `out/`. The generic gn → ninja → promote pipeline lives once in `Ctx.build_variant` in `engine.py`; `build.py` is just data. `host_release` deliberately means different things per host (macOS host tools vs the Windows engine), so the host OS selects the table.
+
+The standard four (tvOS, macOS host) are:
 
 | Variant                        | Purpose                                  |
 |-------------------------------|------------------------------------------|
@@ -108,7 +110,7 @@ On Apple Silicon, the cross-compile `gen_snapshot_arm64` for tvOS ARM64 targets 
 Purpose: Plezy composites HDR mpv video (its own child-HWND flip swapchain — DWM layer 3) under Flutter UI. Stock Flutter presents blt-model into the redirection surface (layer 1, bottom-most), so nothing can render below it. The patch makes the embedder present into a premultiplied `CreateSwapChainForComposition` swapchain on an `IDCompositionTarget` (`topmost=TRUE`, layer 4) instead — UI alpha-blends over the video, window capture (Discord/OBS WGC) sees everything, and the app's legacy two-window/accent-hack compositing dies.
 
 - **Opt-in**: the mode activates only when `FLUTTER_WINDOWS_DCOMP=1` is set in the app's environment; otherwise the patched engine is behaviorally stock. Keep it that way — it is also the shape an upstream PR needs (flag-gated, no default change).
-- Patch surface: `engine/src/flutter/shell/platform/windows/` only (egl/manager, egl window surface, compositor present path). No dart/skia patches — which is why `verify_sdk_hash` is NOT overridden in `build.ps1` (prebuilt dart-sdk stays valid, unlike tvOS).
+- Patch surface: `engine/src/flutter/shell/platform/windows/` only (egl/manager, egl window surface, compositor present path). No dart/skia patches — which is why the `win32` variants in `build.py` set `verify_sdk_hash=False` (prebuilt dart-sdk stays valid, unlike the tvOS variants which set it `True`).
 - Variants: `host_debug` feeds the SDK cache dir `windows-x64` (used by `flutter run`); `host_release` feeds `windows-x64-release`. Build both or dev iteration will silently run a stock debug engine.
 - Consumer swap: extract the packaged zip over `<flutter-sdk>\bin\cache\artifacts\engine\windows-x64{,-release}\`. The flutter tool never hashes files (stamp-string check only) but `flutter upgrade`/`precache --force` silently restores stock — re-swap after SDK updates.
 - Watch out for: ANGLE's `EGL_EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE` orientation flip (Y-inverted first renders), resize (`ResizeBuffers` must follow `FlutterWindowsView::ResizeRenderSurface`), and Canonical's in-flight windowing rework touching neighboring files on rebases.
@@ -127,12 +129,12 @@ If you're asked to "make videos smoother on tvOS" or "add a new plugin on Apple 
 ## Build the prebuilt engine
 
 ```bash
-./scripts/fetch-sources.sh 3.44.0        # one-time per version; ~20 min
-./scripts/apply-patches.sh 3.44.0
-./scripts/build-engine.sh 3.44.0 host_release
-./scripts/build-engine.sh 3.44.0 tvos_debug_sim_unopt_arm64
-./scripts/build-engine.sh 3.44.0 tvos_release
-./scripts/package.sh 3.44.0              # → out/packages/flutter-tvos-3.44.0.tar.gz
+python engine.py fetch 3.44.0        # one-time per version; ~20 min
+python engine.py apply 3.44.0
+python engine.py build 3.44.0 host_release
+python engine.py build 3.44.0 tvos_debug_sim_unopt_arm64
+python engine.py build 3.44.0 tvos_release
+python engine.py package 3.44.0              # → out/packages/flutter-tvos-3.44.0.tar.gz
 ```
 
 Then upload the tarball to a GitHub Release on this repo. Consumer apps point `FLUTTER_LOCAL_ENGINE` at the extracted tarball.

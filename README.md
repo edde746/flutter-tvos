@@ -11,27 +11,29 @@ Two patch series live here:
 
 (Future candidate: a Linux series for HDR output.)
 
+All commands are one cross-platform Python CLI, `engine.py` at the repo root (Python 3.8+). It picks sensible defaults from the host OS — the patch series to apply, the build set — and every default is overridable with `--platform`.
+
 ## Quickstart — tvOS (macOS + Xcode)
 
 ```bash
-./scripts/fetch-sources.sh 3.44.0       # gclient sync upstream (~10 GB, ~20 min)
-./scripts/apply-patches.sh 3.44.0 tvos
-./scripts/build-engine.sh 3.44.0 host_release
-./scripts/build-engine.sh 3.44.0 tvos_release
-./scripts/package.sh 3.44.0
+python engine.py fetch 3.44.0          # gclient sync upstream (~10 GB, ~20 min)
+python engine.py apply 3.44.0          # defaults to the tvos series on macOS
+python engine.py build 3.44.0 host_release
+python engine.py build 3.44.0 tvos_release
+python engine.py package 3.44.0
 ```
 
 ## Quickstart — Windows (VS 2022 + Windows SDK)
 
 ```powershell
-.\scripts\fetch-sources.ps1 3.44.0      # gclient sync upstream (~30 GB)
-.\scripts\apply-patches.ps1 3.44.0 windows
-.\scripts\build-engine.ps1 3.44.0 host_debug      # what `flutter run` loads
-.\scripts\build-engine.ps1 3.44.0 host_release    # what release builds load
-.\scripts\package.ps1 3.44.0
+python engine.py fetch 3.44.0          # gclient sync upstream (~30 GB)
+python engine.py apply 3.44.0          # defaults to the windows series on Windows
+python engine.py build 3.44.0 host_debug   # what `flutter run` loads
+python engine.py build 3.44.0 host_release # what release builds load
+python engine.py package 3.44.0
 ```
 
-Requirements: Visual Studio 2022 with C++ workload, Windows 10/11 SDK with Debugging Tools, Python 3, git, `LongPathsEnabled=1`. depot_tools is auto-cloned to `./depot_tools/` if not on `PATH` (it bootstraps its own pinned git/python, so your git config can't corrupt the checkout). `DEPOT_TOOLS_WIN_TOOLCHAIN=0` is set by the scripts.
+Requirements: Visual Studio 2022 with C++ workload, Windows 10/11 SDK with Debugging Tools, Python 3, git, `LongPathsEnabled=1`. depot_tools is auto-cloned to `./depot_tools/` if not on `PATH` (it bootstraps its own pinned git/python, so your git config can't corrupt the checkout). `DEPOT_TOOLS_WIN_TOOLCHAIN=0` is set by the CLI.
 
 `./sources/` (gitignored) holds the gclient-synced upstream trees.
 `./out/` (gitignored) holds build output.
