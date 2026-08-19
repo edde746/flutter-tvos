@@ -1,7 +1,7 @@
-From febe837b1060b6d4dc387085929ee4867483dad9 Mon Sep 17 00:00:00 2001
+From 77d3030c071c9735b54b8351bba8942034e1183b Mon Sep 17 00:00:00 2001
 From: tvOS port <tvos@local>
 Date: Mon, 18 May 2026 20:35:57 +0200
-Subject: [PATCH 37/48] tvos: populate both tvos SDK paths
+Subject: [PATCH 37/51] tvos: populate both tvos SDK paths
 
 
 diff --git a/engine/src/build/config/darwin/darwin_sdk.gni b/engine/src/build/config/darwin/darwin_sdk.gni

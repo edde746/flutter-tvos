@@ -1,7 +1,7 @@
-From 41bd7f89275ed1bdaf2cc6cf33262824c65e8833 Mon Sep 17 00:00:00 2001
+From 850bcec9b4da1cf453344a99227d450388170000 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 23:15:02 +0200
-Subject: [PATCH 30/48] tvos: guard iOS-only APIs in
+Subject: [PATCH 30/51] tvos: guard iOS-only APIs in
  lifecycle/viewcontroller/bridge
 
 

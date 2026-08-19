@@ -1,7 +1,7 @@
-From 32bfa9fd1735c63c091cfcd8b1cbe3aa25a3a5a0 Mon Sep 17 00:00:00 2001
+From d6b31fd25dafd98302f5ff543a73f88216643c9d Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Sun, 26 Jul 2026 05:49:52 +0200
-Subject: [PATCH 50/50] fix(tvos): use native text input sessions
+Subject: [PATCH 50/51] fix(tvos): use native text input sessions
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn

@@ -1,7 +1,7 @@
-From b091dc95ca8d4fb1e777a53f7bc7bd0a1bed804a Mon Sep 17 00:00:00 2001
+From 1f17e1706fc095816116b55de19c642a111ec075 Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Fri, 24 Apr 2026 10:30:45 +0200
-Subject: [PATCH 32/48] tvos: route siri remote presses through hardware
+Subject: [PATCH 32/51] tvos: route siri remote presses through hardware
  keyboard
 
 

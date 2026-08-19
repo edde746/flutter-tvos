@@ -1,7 +1,7 @@
-From 850504faf8a1724db85b40eb43a3a6cbe2b9ca96 Mon Sep 17 00:00:00 2001
+From b5a5b23ffa98758117c7d31ff3f06c4541f79f6e Mon Sep 17 00:00:00 2001
 From: tvOS port <tvos@local>
 Date: Mon, 18 May 2026 20:36:49 +0200
-Subject: [PATCH 38/48] tvos: guard iOS 18 accessibility settings availability
+Subject: [PATCH 38/51] tvos: guard iOS 18 accessibility settings availability
 
 
 diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/AccessibilityFeatures.swift b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/AccessibilityFeatures.swift

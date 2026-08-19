@@ -1,7 +1,7 @@
-From e47f0778aa6ebc7163143f5b132d757f3545c99f Mon Sep 17 00:00:00 2001
+From e1938ea752c8e5e143ffb51ab277f215e45365bb Mon Sep 17 00:00:00 2001
 From: edde746 <86283021+edde746@users.noreply.github.com>
 Date: Thu, 23 Apr 2026 22:17:10 +0200
-Subject: [PATCH 15/48] tvos: ignore gclient state files
+Subject: [PATCH 15/51] tvos: ignore gclient state files
 
 
 diff --git a/.gitignore b/.gitignore
