@@ -1,0 +1,914 @@
+From 45a225660442d7a073fa4adf8eaeed06a5781db4 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Sun, 26 Jul 2026 05:49:52 +0200
+Subject: [PATCH 50/53] fix(tvos): use native text input sessions
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+index f0c5cf6f..7ba02a8f 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
++++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+@@ -338,6 +338,7 @@ if (enable_ios_unittests) {
+       # "framework/Source/FlutterTouchInterceptingView+Test.h",
+       # "framework/Source/FlutterUndoManagerPluginTest.mm",
+       # "framework/Source/FlutterViewControllerTest.mm",
++      "framework/Source/FlutterTextInputPluginTvosTest.mm",
+       "framework/Source/FlutterViewControllerTvosPressTest.mm",
+       # "framework/Source/FlutterViewTest.mm",
+       # "framework/Source/SemanticsObjectTest.mm",
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
+index d155fea2..7da6c9af 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
+@@ -3,6 +3,9 @@
+ // found in the LICENSE file.
+ 
+ #import "flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h"
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h"
++#endif
+ #import "flutter/shell/platform/darwin/ios/framework/Source/UIViewController+FlutterScreenAndSceneIfLoaded.h"
+ 
+ #import <Foundation/Foundation.h>
+@@ -785,9 +788,21 @@ - (void)forwardInvocation:(NSInvocation*)anInvocation {
+ 
+ @end
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++@class FlutterTvosTextInputProxy;
++
++@interface FlutterTvosTextInputProxy : UITextField <UITextFieldDelegate>
++@property(nonatomic, weak) FlutterTextInputView* owner;
++- (instancetype)initWithOwner:(FlutterTextInputView*)owner;
++@end
++#endif
++
+ @interface FlutterTextInputPlugin ()
+ @property(nonatomic, readonly, weak) id<FlutterTextInputDelegate> textInputDelegate;
+ @property(nonatomic, readonly) UIView* hostView;
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++- (void)setTvosNativeTextInputActive:(BOOL)active;
++#endif
+ @end
+ 
+ @interface FlutterTextInputView ()
+@@ -807,9 +822,67 @@ @interface FlutterTextInputView ()
+ @property(nonatomic, assign) CGRect editMenuTargetRect;
+ @property(nonatomic, strong) NSArray<NSDictionary*>* editMenuItems;
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++@property(nonatomic, readonly) UITextField* tvosTextInputProxy;
++- (void)syncTvosTextInputProxy;
++- (void)tvosTextInputProxyDidBeginEditing;
++- (void)tvosTextInputProxyDidChange;
++- (void)tvosTextInputProxyDidEndEditing;
++- (void)tvosTextInputProxyShouldReturn;
++#endif
++
+ - (void)setEditableTransform:(NSArray*)matrix;
+ @end
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++@implementation FlutterTvosTextInputProxy
++
++- (instancetype)initWithOwner:(FlutterTextInputView*)owner {
++  self = [super initWithFrame:CGRectMake(0, 0, 1, 1)];
++  if (self) {
++    _owner = owner;
++    self.delegate = self;
++    self.borderStyle = UITextBorderStyleNone;
++    self.backgroundColor = UIColor.clearColor;
++    self.textColor = UIColor.clearColor;
++    self.tintColor = UIColor.clearColor;
++    self.alpha = 0.01;
++    self.accessibilityElementsHidden = YES;
++    [self addTarget:self
++                  action:@selector(editingChanged:)
++        forControlEvents:UIControlEventEditingChanged];
++  }
++  return self;
++}
++
++- (BOOL)canBecomeFirstResponder {
++  return self.owner.canBecomeFirstResponder;
++}
++
++- (void)editingChanged:(UITextField*)textField {
++  [self.owner tvosTextInputProxyDidChange];
++}
++
++- (void)textFieldDidBeginEditing:(UITextField*)textField {
++  [self.owner tvosTextInputProxyDidBeginEditing];
++}
++
++- (void)textFieldDidChangeSelection:(UITextField*)textField {
++  [self.owner tvosTextInputProxyDidChange];
++}
++
++- (void)textFieldDidEndEditing:(UITextField*)textField {
++  [self.owner tvosTextInputProxyDidEndEditing];
++}
++
++- (BOOL)textFieldShouldReturn:(UITextField*)textField {
++  [self.owner tvosTextInputProxyShouldReturn];
++  return NO;
++}
++
++@end
++#endif
++
+ @implementation FlutterTextInputView {
+   int _textInputClient;
+   const char* _selectionAffinity;
+@@ -828,6 +901,10 @@ @implementation FlutterTextInputView {
+ #if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   UITextInteraction* _textInteraction API_AVAILABLE(ios(13.0));
+ #endif
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++  FlutterTvosTextInputProxy* _tvosTextInputProxy;
++  BOOL _syncingTvosTextInputProxy;
++#endif
+ }
+ 
+ @synthesize tokenizer = _tokenizer;
+@@ -875,6 +952,10 @@ - (instancetype)initWithOwner:(FlutterTextInputPlugin*)textInputPlugin {
+       UIScribbleInteraction* interaction = [[UIScribbleInteraction alloc] initWithDelegate:self];
+       [self addInteraction:interaction];
+     }
++#endif
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++    _tvosTextInputProxy = [[FlutterTvosTextInputProxy alloc] initWithOwner:self];
++    [self addSubview:_tvosTextInputProxy];
+ #endif
+   }
+ 
+@@ -888,6 +969,131 @@ - (instancetype)initWithOwner:(FlutterTextInputPlugin*)textInputPlugin {
+   return self;
+ }
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++- (UITextField*)tvosTextInputProxy {
++  return _tvosTextInputProxy;
++}
++
++- (NSRange)tvosRangeFromTextRange:(UITextRange*)range {
++  if (range == nil) {
++    return NSMakeRange(NSNotFound, 0);
++  }
++  NSInteger start = [_tvosTextInputProxy offsetFromPosition:_tvosTextInputProxy.beginningOfDocument
++                                                 toPosition:range.start];
++  NSInteger end = [_tvosTextInputProxy offsetFromPosition:_tvosTextInputProxy.beginningOfDocument
++                                               toPosition:range.end];
++  if (start < 0 || end < start) {
++    return NSMakeRange(NSNotFound, 0);
++  }
++  return [self clampSelection:NSMakeRange(start, end - start)
++                      forText:_tvosTextInputProxy.text ?: @""];
++}
++
++- (void)syncTvosTextInputProxy {
++  if (_syncingTvosTextInputProxy) {
++    return;
++  }
++
++  _syncingTvosTextInputProxy = YES;
++  _tvosTextInputProxy.keyboardType = self.keyboardType;
++  _tvosTextInputProxy.returnKeyType = self.returnKeyType;
++  _tvosTextInputProxy.keyboardAppearance = self.keyboardAppearance;
++  _tvosTextInputProxy.autocapitalizationType = self.autocapitalizationType;
++  _tvosTextInputProxy.autocorrectionType = self.autocorrectionType;
++  _tvosTextInputProxy.spellCheckingType = self.spellCheckingType;
++  _tvosTextInputProxy.enablesReturnKeyAutomatically = self.enablesReturnKeyAutomatically;
++  _tvosTextInputProxy.smartDashesType = self.smartDashesType;
++  _tvosTextInputProxy.smartQuotesType = self.smartQuotesType;
++  _tvosTextInputProxy.textContentType = self.textContentType;
++  _tvosTextInputProxy.secureTextEntry = self.secureTextEntry;
++
++  NSString* text = [NSString stringWithString:self.text];
++  if (![_tvosTextInputProxy.text isEqualToString:text]) {
++    _tvosTextInputProxy.text = text;
++  }
++
++  NSRange selectedRange = [(FlutterTextRange*)self.selectedTextRange range];
++  UITextPosition* start =
++      [_tvosTextInputProxy positionFromPosition:_tvosTextInputProxy.beginningOfDocument
++                                         offset:selectedRange.location];
++  UITextPosition* end = [_tvosTextInputProxy positionFromPosition:start
++                                                           offset:selectedRange.length];
++  if (start != nil && end != nil) {
++    _tvosTextInputProxy.selectedTextRange = [_tvosTextInputProxy textRangeFromPosition:start
++                                                                            toPosition:end];
++  }
++  _syncingTvosTextInputProxy = NO;
++}
++
++- (void)tvosTextInputProxyDidBeginEditing {
++  [self.textInputPlugin setTvosNativeTextInputActive:YES];
++}
++
++- (void)tvosTextInputProxyDidChange {
++  if (_syncingTvosTextInputProxy) {
++    return;
++  }
++
++  NSString* oldText = [NSString stringWithString:self.text];
++  NSString* newText = _tvosTextInputProxy.text ?: @"";
++  NSRange selectedRange = [self tvosRangeFromTextRange:_tvosTextInputProxy.selectedTextRange];
++  if (selectedRange.location == NSNotFound) {
++    selectedRange = NSMakeRange(newText.length, 0);
++  }
++  NSRange markedRange = [self tvosRangeFromTextRange:_tvosTextInputProxy.markedTextRange];
++  NSRange oldSelectedRange = [(FlutterTextRange*)self.selectedTextRange range];
++  NSRange oldMarkedRange = self.markedTextRange == nil
++                               ? NSMakeRange(NSNotFound, 0)
++                               : [(FlutterTextRange*)self.markedTextRange range];
++  BOOL textChanged = ![oldText isEqualToString:newText];
++  if (!textChanged && NSEqualRanges(selectedRange, oldSelectedRange) &&
++      NSEqualRanges(markedRange, oldMarkedRange)) {
++    return;
++  }
++
++  _syncingTvosTextInputProxy = YES;
++  [self setTextInputState:@{
++    @"text" : newText,
++    @"selectionBase" : @(selectedRange.location),
++    @"selectionExtent" : @(NSMaxRange(selectedRange)),
++    @"selectionAffinity" : @(_selectionAffinity),
++    @"selectionIsDirectional" : @NO,
++    @"composingBase" : markedRange.location == NSNotFound ? @(-1) : @(markedRange.location),
++    @"composingExtent" : markedRange.location == NSNotFound ? @(-1) : @(NSMaxRange(markedRange)),
++  }];
++  _syncingTvosTextInputProxy = NO;
++
++  if (_enableDeltaModel) {
++    if (textChanged) {
++      [self updateEditingStateWithDelta:flutter::TextEditingDelta(
++                                            [oldText UTF8String],
++                                            flutter::TextRange(0, oldText.length),
++                                            [newText UTF8String])];
++    } else {
++      [self updateEditingStateWithDelta:flutter::TextEditingDelta([oldText UTF8String])];
++    }
++  } else {
++    [self updateEditingState];
++  }
++}
++
++- (void)tvosTextInputProxyDidEndEditing {
++  [self.textInputPlugin setTvosNativeTextInputActive:NO];
++  if (!self.preventCursorDismissWhenResignFirstResponder) {
++    [self.textInputDelegate flutterTextInputView:self
++        didResignFirstResponderWithTextInputClient:_textInputClient];
++  }
++}
++
++- (void)tvosTextInputProxyShouldReturn {
++  BOOL shouldInsert = [self shouldChangeTextInRange:self.selectedTextRange replacementText:@"\n"];
++  if (shouldInsert) {
++    [self insertText:@"\n"];
++    [self syncTvosTextInputProxy];
++  }
++}
++#endif
++
+ - (void)handleSearchWebAction {
+   [self.textInputDelegate flutterTextInputView:self
+                      searchWebWithSelectedText:[self textInRange:_selectedTextRange]];
+@@ -1124,6 +1330,9 @@ - (void)configureWithDictionary:(NSDictionary*)configuration {
+     self.inlinePredictionType =
+         enabled ? UITextInlinePredictionTypeYes : UITextInlinePredictionTypeNo;
+   }
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++  [self syncTvosTextInputProxy];
++#endif
+ }
+ 
+ - (UITextContentType)textContentType {
+@@ -1245,6 +1454,9 @@ - (void)setTextInputState:(NSDictionary*)state {
+     [self removeInteraction:_textInteraction];
+   }
+ #endif
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++  [self syncTvosTextInputProxy];
++#endif
+ }
+ 
+ // Forward touches to the viewResponder to allow tapping inside the UITextField as normal.
+@@ -1358,7 +1570,34 @@ - (BOOL)canBecomeFirstResponder {
+   return _textInputClient != 0;
+ }
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++- (BOOL)becomeFirstResponder {
++  if (!_isSystemKeyboardEnabled) {
++    return [super becomeFirstResponder];
++  }
++  [self syncTvosTextInputProxy];
++  return [_tvosTextInputProxy becomeFirstResponder];
++}
++
++- (BOOL)isFirstResponder {
++  return _tvosTextInputProxy.isFirstResponder || [super isFirstResponder];
++}
++
++- (void)reloadInputViews {
++  if (_tvosTextInputProxy.isFirstResponder) {
++    [_tvosTextInputProxy reloadInputViews];
++  } else {
++    [super reloadInputViews];
++  }
++}
++#endif
++
+ - (BOOL)resignFirstResponder {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++  if (_tvosTextInputProxy.isFirstResponder) {
++    return [_tvosTextInputProxy resignFirstResponder];
++  }
++#endif
+   BOOL success = [super resignFirstResponder];
+   if (success) {
+     if (!_preventCursorDismissWhenResignFirstResponder) {
+@@ -2895,6 +3134,13 @@ - (void)startLiveTextInput {
+ #endif
+ }
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++- (void)setTvosNativeTextInputActive:(BOOL)active {
++  FlutterViewController* viewController = (FlutterViewController*)self.viewController;
++  viewController.tvosNativeTextInputActive = active;
++}
++#endif
++
+ - (void)showTextInput {
+   _activeView.viewResponder = _viewResponder;
+   [self addToInputParentViewIfNeeded:_activeView];
+@@ -3346,6 +3592,9 @@ - (void)setUpIndirectScribbleInteraction:(id<FlutterViewResponder>)viewResponder
+ }
+ 
+ - (void)resetViewResponder {
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++  [self setTvosNativeTextInputActive:NO];
++#endif
+   _viewResponder = nil;
+ }
+ 
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm
+new file mode 100644
+index 00000000..035f0551
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm
+@@ -0,0 +1,163 @@
++// Copyright 2013 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#import <OCMock/OCMock.h>
++#import <XCTest/XCTest.h>
++
++#import "flutter/shell/platform/darwin/common/framework/Headers/FlutterMacros.h"
++#import "flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h"
++#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h"
++
++FLUTTER_ASSERT_ARC
++
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++
++@interface FlutterTextInputPlugin ()
++@property(nonatomic, retain) FlutterTextInputView* activeView;
++@end
++
++@interface FlutterTextInputView ()
++@property(nonatomic, readonly) UITextField* tvosTextInputProxy;
++- (void)setTextInputState:(NSDictionary*)state;
++- (void)tvosTextInputProxyDidBeginEditing;
++- (void)tvosTextInputProxyDidChange;
++- (void)tvosTextInputProxyDidEndEditing;
++- (void)tvosTextInputProxyShouldReturn;
++@end
++
++@interface FlutterViewController (TvosTextInputTests)
++@property(nonatomic, assign, getter=isTvosNativeTextInputActive) BOOL tvosNativeTextInputActive;
++@end
++
++@interface FlutterTextInputPluginTvosTest : XCTestCase
++@end
++
++@implementation FlutterTextInputPluginTvosTest {
++  id _delegate;
++  FlutterTextInputPlugin* _plugin;
++  FlutterViewController* _viewController;
++}
++
++- (void)setUp {
++  [super setUp];
++  _delegate = OCMProtocolMock(@protocol(FlutterTextInputDelegate));
++  _plugin = [[FlutterTextInputPlugin alloc] initWithDelegate:_delegate];
++  _viewController = [[FlutterViewController alloc] init];
++  _plugin.viewController = _viewController;
++}
++
++- (void)tearDown {
++  _plugin = nil;
++  _delegate = nil;
++  _viewController = nil;
++  [super tearDown];
++}
++
++- (NSMutableDictionary*)configuration {
++  return [@{
++    @"inputType" : @{@"name" : @"TextInputType.url"},
++    @"keyboardAppearance" : @"Brightness.dark",
++    @"obscureText" : @NO,
++    @"inputAction" : @"TextInputAction.done",
++    @"smartDashesType" : @"0",
++    @"smartQuotesType" : @"0",
++    @"autocorrect" : @NO,
++    @"enableInteractiveSelection" : @YES,
++  } mutableCopy];
++}
++
++- (void)setClientWithConfiguration:(NSDictionary*)configuration {
++  FlutterMethodCall* call = [FlutterMethodCall methodCallWithMethodName:@"TextInput.setClient"
++                                                              arguments:@[ @123, configuration ]];
++  [_plugin handleMethodCall:call
++                     result:^(id result){
++                     }];
++}
++
++- (void)testProxyUsesFlutterTraitsAndEditingState {
++  NSMutableDictionary* configuration = self.configuration;
++  configuration[@"obscureText"] = @YES;
++  [self setClientWithConfiguration:configuration];
++
++  FlutterTextInputView* inputView = _plugin.activeView;
++  [inputView setTextInputState:@{
++    @"text" : @"hello",
++    @"selectionBase" : @1,
++    @"selectionExtent" : @4,
++    @"selectionAffinity" : @"TextAffinity.downstream",
++    @"composingBase" : @(-1),
++    @"composingExtent" : @(-1),
++  }];
++
++  UITextField* proxy = inputView.tvosTextInputProxy;
++  XCTAssertEqual(proxy.keyboardType, UIKeyboardTypeURL);
++  XCTAssertEqual(proxy.returnKeyType, UIReturnKeyDone);
++  XCTAssertEqual(proxy.keyboardAppearance, UIKeyboardAppearanceDark);
++  XCTAssertEqual(proxy.autocorrectionType, UITextAutocorrectionTypeNo);
++  XCTAssertTrue(proxy.secureTextEntry);
++  XCTAssertEqualObjects(proxy.text, @"hello");
++  XCTAssertEqual([proxy offsetFromPosition:proxy.beginningOfDocument
++                                toPosition:proxy.selectedTextRange.start],
++                 1);
++  XCTAssertEqual([proxy offsetFromPosition:proxy.beginningOfDocument
++                                toPosition:proxy.selectedTextRange.end],
++                 4);
++}
++
++- (void)testProxyEditingUpdatesFlutterClient {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++  [inputView setTextInputState:@{
++    @"text" : @"old",
++    @"selectionBase" : @3,
++    @"selectionExtent" : @3,
++    @"selectionAffinity" : @"TextAffinity.downstream",
++    @"composingBase" : @(-1),
++    @"composingExtent" : @(-1),
++  }];
++
++  OCMExpect([_delegate flutterTextInputView:inputView
++                        updateEditingClient:123
++                                  withState:[OCMArg checkWithBlock:^BOOL(NSDictionary* state) {
++                                    return [state[@"text"] isEqualToString:@"native"] &&
++                                           [state[@"selectionBase"] integerValue] == 6 &&
++                                           [state[@"selectionExtent"] integerValue] == 6;
++                                  }]]);
++
++  UITextField* proxy = inputView.tvosTextInputProxy;
++  proxy.text = @"native";
++  UITextPosition* end = [proxy positionFromPosition:proxy.beginningOfDocument offset:6];
++  proxy.selectedTextRange = [proxy textRangeFromPosition:end toPosition:end];
++  [inputView tvosTextInputProxyDidChange];
++
++  OCMVerifyAll(_delegate);
++  XCTAssertEqualObjects(inputView.text, @"native");
++}
++
++- (void)testProxyReturnUsesConfiguredFlutterAction {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++  OCMExpect([_delegate flutterTextInputView:inputView
++                              performAction:FlutterTextInputActionDone
++                                 withClient:123]);
++
++  [inputView tvosTextInputProxyShouldReturn];
++
++  OCMVerifyAll(_delegate);
++}
++
++- (void)testProxyEditingLifecycleControlsNativeRouting {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++
++  [inputView tvosTextInputProxyDidBeginEditing];
++  XCTAssertTrue(_viewController.tvosNativeTextInputActive);
++
++  [inputView tvosTextInputProxyDidEndEditing];
++  XCTAssertFalse(_viewController.tvosNativeTextInputActive);
++}
++
++@end
++
++#endif
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 5181fe90..8cd098bb 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -80,7 +80,9 @@ typedef NS_ENUM(NSUInteger, FlutterTvosPressRoute) {
+   FlutterTvosPressRouteEngine,
+   FlutterTvosPressRouteSystem,
+ };
+-@interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate, UIGestureRecognizerDelegate>
++@interface FlutterViewController () <FlutterBinaryMessenger,
++                                     UIScrollViewDelegate,
++                                     UIGestureRecognizerDelegate>
+ @property(nonatomic, strong) FlutterBasicMessageChannel* keyEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* gamepadTouchEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* tvosSystemNavigationChannel;
+@@ -96,11 +98,12 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ @property(nonatomic, strong) NSNumber* synthesizedRepeatPhysicalKey;
+ @property(nonatomic, assign) uint64_t synthesizedRepeatLogicalKey;
+ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+-                       eventType:(FlutterKeyEventType)type
+-                        physical:(uint64_t)physical
+-                         logical:(uint64_t)logical API_AVAILABLE(tvos(13.4));
++                        eventType:(FlutterKeyEventType)type
++                         physical:(uint64_t)physical
++                          logical:(uint64_t)logical API_AVAILABLE(tvos(13.4));
+ - (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ - (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
++- (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y;
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger,
+                                      UIScrollViewDelegate,
+@@ -131,7 +134,7 @@ @interface FlutterViewController () <FlutterBinaryMessenger,
+ @property(nonatomic, assign) BOOL isPresentingViewControllerAnimating;
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-@property(nonatomic, strong) FlutterAccessibilitySelectionView *selectionView;
++@property(nonatomic, strong) FlutterAccessibilitySelectionView* selectionView;
+ #endif
+ 
+ // Internal state backing override of UIView.prefersStatusBarHidden.
+@@ -217,7 +220,8 @@ - (void)onFirstFrameRendered;
+   return nil;
+ }
+ 
+-static FlutterViewController* FlutterTvosFindFlutterViewController(UIViewController* viewController) {
++static FlutterViewController* FlutterTvosFindFlutterViewController(
++    UIViewController* viewController) {
+   if (viewController == nil) {
+     return nil;
+   }
+@@ -268,7 +272,8 @@ - (void)onFirstFrameRendered;
+   return FlutterTvosFindFlutterViewController(window.rootViewController);
+ }
+ 
+-static FlutterViewController* FlutterTvosFlutterViewControllerForApplication(UIApplication* application) {
++static FlutterViewController* FlutterTvosFlutterViewControllerForApplication(
++    UIApplication* application) {
+   for (UIScene* scene in application.connectedScenes) {
+     if (![scene isKindOfClass:[UIWindowScene class]]) {
+       continue;
+@@ -285,8 +290,8 @@ - (void)onFirstFrameRendered;
+ }
+ 
+ static FlutterViewController* FlutterTvosFlutterViewControllerForPress(UIPress* press,
+-                                                                        UIWindow* window,
+-                                                                        UIApplication* application) {
++                                                                       UIWindow* window,
++                                                                       UIApplication* application) {
+   FlutterViewController* responderViewController =
+       FlutterTvosFlutterViewControllerForResponder(press.responder);
+   if (responderViewController != nil) {
+@@ -1007,8 +1012,8 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ // path, followed by the legacy raw message that commits that event in the
+ // framework. The synthesized flag is reserved for engine state repair.
+ - (BOOL)sendRemoteKeyEventOfType:(FlutterKeyEventType)type
+-                       physical:(uint64_t)physical
+-                        logical:(uint64_t)logical {
++                        physical:(uint64_t)physical
++                         logical:(uint64_t)logical {
+   if (@available(tvOS 13.4, *)) {
+     NSNumber* key = @(physical);
+     if (type == kFlutterKeyEventTypeDown) {
+@@ -1076,8 +1081,8 @@ - (BOOL)physicalLogicalForPressType:(UIPressType)pressType
+       *outLogical = 0x100000301ULL;
+       return YES;
+     case UIPressTypeSelect:
+-      *outPhysical = 0x00070077ULL;   // Keyboard Select
+-      *outLogical = 0x10000050CULL;   // LogicalKeyboardKey.select
++      *outPhysical = 0x00070077ULL;  // Keyboard Select
++      *outLogical = 0x10000050CULL;  // LogicalKeyboardKey.select
+       return YES;
+     case UIPressTypeMenu:
+       *outPhysical = 0x00070029ULL;  // Keyboard ESCAPE
+@@ -1104,15 +1109,14 @@ - (BOOL)shouldPassMenuPressToSystem:(UIPress*)press {
+   return self.menuPressPassthroughEnabled && press.type == UIPressTypeMenu;
+ }
+ 
+-
+ - (void)sendSynthesizedRepeat {
+   NSNumber* physicalKey = self.synthesizedRepeatPhysicalKey;
+   if (physicalKey == nil) {
+     return;
+   }
+   [self sendRemoteKeyEventOfType:kFlutterKeyEventTypeRepeat
+-                             physical:physicalKey.unsignedLongLongValue
+-                              logical:self.synthesizedRepeatLogicalKey];
++                        physical:physicalKey.unsignedLongLongValue
++                         logical:self.synthesizedRepeatLogicalKey];
+ }
+ 
+ - (void)stopSynthesizedRepeat {
+@@ -1130,31 +1134,29 @@ - (void)startSynthesizedRepeatWithPhysical:(uint64_t)physical logical:(uint64_t)
+   self.synthesizedRepeatLogicalKey = logical;
+ 
+   __weak FlutterViewController* weakSelf = self;
+-  self.synthesizedRepeatDelayTimer =
+-      [NSTimer scheduledTimerWithTimeInterval:0.4
+-                                      repeats:NO
+-                                        block:^(NSTimer* _Nonnull timer) {
+-                                          FlutterViewController* strongSelf = weakSelf;
+-                                          if (!strongSelf) {
+-                                            return;
+-                                          }
+-                                          [strongSelf sendSynthesizedRepeat];
+-                                          strongSelf.synthesizedRepeatTimer =
+-                                              [NSTimer scheduledTimerWithTimeInterval:0.08
+-                                                                              repeats:YES
+-                                                                                block:^(NSTimer* _Nonnull timer) {
+-                                                                                  [weakSelf sendSynthesizedRepeat];
+-                                                                                }];
+-                                        }];
++  self.synthesizedRepeatDelayTimer = [NSTimer
++      scheduledTimerWithTimeInterval:0.4
++                             repeats:NO
++                               block:^(NSTimer* _Nonnull timer) {
++                                 FlutterViewController* strongSelf = weakSelf;
++                                 if (!strongSelf) {
++                                   return;
++                                 }
++                                 [strongSelf sendSynthesizedRepeat];
++                                 strongSelf.synthesizedRepeatTimer = [NSTimer
++                                     scheduledTimerWithTimeInterval:0.08
++                                                            repeats:YES
++                                                              block:^(NSTimer* _Nonnull timer) {
++                                                                [weakSelf sendSynthesizedRepeat];
++                                                              }];
++                               }];
+ }
+ 
+ - (BOOL)remotePhysicalLogicalForPress:(UIPress*)press
+                              physical:(uint64_t*)outPhysical
+                               logical:(uint64_t*)outLogical API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+-    if (![self physicalLogicalForPressType:press.type
+-                                  physical:outPhysical
+-                                   logical:outLogical]) {
++    if (![self physicalLogicalForPressType:press.type physical:outPhysical logical:outLogical]) {
+       return NO;
+     }
+ 
+@@ -1178,11 +1180,10 @@ - (BOOL)remotePhysicalLogicalForPress:(UIPress*)press
+   return NO;
+ }
+ 
+-
+ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+-                       eventType:(FlutterKeyEventType)type
+-                        physical:(uint64_t)physical
+-                         logical:(uint64_t)logical API_AVAILABLE(tvos(13.4)) {
++                        eventType:(FlutterKeyEventType)type
++                         physical:(uint64_t)physical
++                          logical:(uint64_t)logical API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+     if (type == kFlutterKeyEventTypeUp &&
+         self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
+@@ -1218,14 +1219,18 @@ - (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4)
+         if (systemOwned) {
+           return FlutterTvosPressRouteSystem;
+         }
++        if (self.isTvosNativeTextInputActive) {
++          [self.systemOwnedRemotePressKeys addObject:key];
++          return FlutterTvosPressRouteSystem;
++        }
+         if ([self shouldPassMenuPressToSystem:press]) {
+           [self.systemOwnedRemotePressKeys addObject:key];
+           return FlutterTvosPressRouteSystem;
+         }
+         [self synthesizeRemotePressType:press.type
+-                             eventType:kFlutterKeyEventTypeDown
+-                              physical:physical
+-                               logical:logical];
++                              eventType:kFlutterKeyEventTypeDown
++                               physical:physical
++                                logical:logical];
+         return FlutterTvosPressRouteEngine;
+       case UIPressPhaseChanged:
+       case UIPressPhaseStationary:
+@@ -1234,9 +1239,9 @@ - (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4)
+       case UIPressPhaseCancelled:
+         if (engineOwned) {
+           [self synthesizeRemotePressType:press.type
+-                               eventType:kFlutterKeyEventTypeUp
+-                                physical:physical
+-                                 logical:logical];
++                                eventType:kFlutterKeyEventTypeUp
++                                 physical:physical
++                                  logical:logical];
+           return FlutterTvosPressRouteEngine;
+         }
+         if (systemOwned) {
+@@ -1285,7 +1290,8 @@ - (void)handlePageUpTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(1
+ - (void)handlePageDownTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(14.3)) {
+   [self handleTap:recognizer withType:@"android" keyType:0xA7];
+ }
+-- (UILongPressGestureRecognizer*)createRecognizerFor:(UIPressType)pressType action:(nullable SEL)action {
++- (UILongPressGestureRecognizer*)createRecognizerFor:(UIPressType)pressType
++                                              action:(nullable SEL)action {
+   UILongPressGestureRecognizer* tapGestureRecognizer =
+       [[UILongPressGestureRecognizer alloc] initWithTarget:self action:action];
+   tapGestureRecognizer.allowedPressTypes = @[ @(pressType) ];
+@@ -1296,6 +1302,9 @@ - (UILongPressGestureRecognizer*)createRecognizerFor:(UIPressType)pressType acti
+ }
+ 
+ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
++  if (self.isTvosNativeTextInputActive && ![type isEqualToString:@"cancelled"]) {
++    return;
++  }
+   NSMutableDictionary* dictionary = [@{
+     @"type" : type,
+     @"x" : @(x),
+@@ -1304,6 +1313,27 @@ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+   [self.gamepadTouchEventChannel sendMessage:dictionary];
+ }
+ 
++- (void)setTvosNativeTextInputActive:(BOOL)active {
++  if (_tvosNativeTextInputActive == active) {
++    return;
++  }
++
++  _tvosNativeTextInputActive = active;
++  if (active) {
++    [self stopSynthesizedRepeat];
++    [self sendGamepadTouchesWithType:@"cancelled" x:0 y:0];
++    return;
++  }
++
++  __weak FlutterViewController* weakSelf = self;
++  dispatch_async(dispatch_get_main_queue(), ^{
++    FlutterViewController* strongSelf = weakSelf;
++    if (strongSelf && !strongSelf.isTvosNativeTextInputActive) {
++      [strongSelf becomeFirstResponder];
++    }
++  });
++}
++
+ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+   gamepad.reportsAbsoluteDpadValues = true;
+   __weak FlutterViewController* weakSelf = self;
+@@ -1403,10 +1433,10 @@ - (void)controllerConnected:(NSNotification*)notification {
+ }
+ 
+ - (void)setupTvosSystemNavigationChannel {
+-  self.tvosSystemNavigationChannel = [FlutterBasicMessageChannel
+-      messageChannelWithName:@"flutter/tvos_system_navigation"
+-             binaryMessenger:[self binaryMessenger]
+-                       codec:[FlutterJSONMessageCodec sharedInstance]];
++  self.tvosSystemNavigationChannel =
++      [FlutterBasicMessageChannel messageChannelWithName:@"flutter/tvos_system_navigation"
++                                         binaryMessenger:[self binaryMessenger]
++                                                   codec:[FlutterJSONMessageCodec sharedInstance]];
+ 
+   __weak FlutterViewController* weakSelf = self;
+   [self.tvosSystemNavigationChannel setMessageHandler:^(id message, FlutterReply reply) {
+@@ -1475,14 +1505,14 @@ - (void)viewDidLoad {
+                                                name:GCControllerDidConnectNotification
+                                              object:nil];
+ 
+-  self.keyEventChannel = [FlutterBasicMessageChannel
+-      messageChannelWithName:@"flutter/keyevent"
+-             binaryMessenger:[self binaryMessenger]
+-                       codec:[FlutterJSONMessageCodec sharedInstance]];
+-  self.gamepadTouchEventChannel = [FlutterBasicMessageChannel
+-      messageChannelWithName:@"flutter/gamepadtouchevent"
+-             binaryMessenger:[self binaryMessenger]
+-                       codec:[FlutterJSONMessageCodec sharedInstance]];
++  self.keyEventChannel =
++      [FlutterBasicMessageChannel messageChannelWithName:@"flutter/keyevent"
++                                         binaryMessenger:[self binaryMessenger]
++                                                   codec:[FlutterJSONMessageCodec sharedInstance]];
++  self.gamepadTouchEventChannel =
++      [FlutterBasicMessageChannel messageChannelWithName:@"flutter/gamepadtouchevent"
++                                         binaryMessenger:[self binaryMessenger]
++                                                   codec:[FlutterJSONMessageCodec sharedInstance]];
+   [self setupTvosSystemNavigationChannel];
+ #endif  // TARGET_OS_TV
+ 
+@@ -1539,7 +1569,8 @@ - (void)viewDidLoad {
+   [super viewDidLoad];
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-  self.selectionView = [[FlutterAccessibilitySelectionView alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
++  self.selectionView =
++      [[FlutterAccessibilitySelectionView alloc] initWithFrame:CGRectMake(0, 0, 0, 0)];
+   [self.view addSubview:self.selectionView];
+ #endif
+ }
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
+index 8be464a7..bc3909f6 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
+@@ -20,6 +20,7 @@ typedef NS_ENUM(NSUInteger, FlutterTvosPressRoute) {
+ 
+ @interface FlutterViewController (TvosPressTests)
+ @property(nonatomic, assign) BOOL menuPressPassthroughEnabled;
++@property(nonatomic, assign, getter=isTvosNativeTextInputActive) BOOL tvosNativeTextInputActive;
+ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+                         eventType:(FlutterKeyEventType)type
+                          physical:(uint64_t)physical
+@@ -163,6 +164,56 @@ - (void)testEngineRoutingOwnerDoesNotChangeMidPress API_AVAILABLE(tvos(13.4)) {
+                         (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
+ }
+ 
++- (void)testEngineOwnedPressFinishesAfterNativeTextInputStarts API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteEngine);
++  viewController.tvosNativeTextInputActive = YES;
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteEngine);
++  XCTAssertEqualObjects(engine.sentKeyEventTypes,
++                        (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
++}
++
++- (void)testSystemOwnedPressFinishesAfterNativeTextInputEnds API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++
++  viewController.tvosNativeTextInputActive = YES;
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteSystem);
++  viewController.tvosNativeTextInputActive = NO;
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteSystem);
++  XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
++}
++
++- (void)testNativeTextInputRoutesDirectionsAndSelectToSystem API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++  viewController.tvosNativeTextInputActive = YES;
++
++  XCTAssertEqual(
++      [viewController tvosRoutePress:RemotePress(UIPressTypeLeftArrow, UIPressPhaseBegan)],
++      FlutterTvosPressRouteSystem);
++  XCTAssertEqual(
++      [viewController tvosRoutePress:RemotePress(UIPressTypeLeftArrow, UIPressPhaseEnded)],
++      FlutterTvosPressRouteSystem);
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteSystem);
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteSystem);
++  XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
++}
++
+ @end
+ 
+ #endif
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
+index e94c9883..11265581 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController_Internal.h
+@@ -49,7 +49,9 @@ typedef void (^FlutterKeyboardAnimationCallback)(NSTimeInterval);
+ @property(nonatomic, strong) FlutterKeyboardManager* keyboardManager;
+ @property(nonatomic, strong) FlutterKeyboardInsetManager* keyboardInsetManager;
+ @property(nonatomic, readwrite) NSString* applicationLocale;
+-
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++@property(nonatomic, assign, getter=isTvosNativeTextInputActive) BOOL tvosNativeTextInputActive;
++#endif
+ #if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ /**
+  * @brief Whether the status bar is preferred hidden.

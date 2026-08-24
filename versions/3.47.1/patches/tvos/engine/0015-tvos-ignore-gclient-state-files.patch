@@ -1,0 +1,18 @@
+From 524bc77ae39ef369292e62b1ae2d7ab93980278b Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:17:10 +0200
+Subject: [PATCH 15/53] tvos: ignore gclient state files
+
+
+diff --git a/.gitignore b/.gitignore
+index e9eb36bf..022a5a38 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -166,6 +166,7 @@ app.*.symbols
+ .python-version
+ .gclient_previous_custom_vars
+ .gclient_previous_sync_commits
++_bad_scm/
+ 
+ # AI related
+ .agents/rules/personal-*

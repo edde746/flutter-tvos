@@ -1,0 +1,101 @@
+From ff12afabfa18d52dcf5cd0eaa11dac506f98cec2 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Wed, 13 May 2026 18:29:52 +0200
+Subject: [PATCH 35/53] tvos: add directional gamepad remote fallback
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 3b566441..eeccf54e 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -789,8 +789,8 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ 
+ // Dispatches a FlutterKeyEvent through the engine's embedder key-data channel,
+ // which lands on Flutter's HardwareKeyboard.instance. Dedupes against
+-// |synthesizedPressedKeys| so concurrent paths (UIPress recognizer + dpad
+-// analog threshold) for the same logical key emit only one Down/Up pair.
++// |synthesizedPressedKeys| so concurrent UIKit press and GameController paths
++// for the same logical key emit only one Down/Up pair.
+ - (void)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+                              physical:(uint64_t)physical
+                               logical:(uint64_t)logical {
+@@ -882,6 +882,57 @@ - (void)maybeSynthesizeForPress:(UIPress*)press
+   }
+ }
+ 
++- (void)sendSynthesizedPressType:(UIPressType)pressType pressed:(BOOL)pressed {
++  if (@available(tvOS 13.4, *)) {
++    uint64_t physical = 0;
++    uint64_t logical = 0;
++    if (![self physicalLogicalForPressType:pressType physical:&physical logical:&logical]) {
++      return;
++    }
++    [self sendSynthesizedKeyEventOfType:pressed ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp
++                              physical:physical
++                               logical:logical];
++  }
++}
++
++- (void)setupGameControllerButton:(GCControllerButtonInput*)button pressType:(UIPressType)pressType {
++  if (button == nil) {
++    return;
++  }
++
++  __weak FlutterViewController* weakSelf = self;
++  button.pressedChangedHandler = ^(GCControllerButtonInput* _Nonnull button, float value, BOOL pressed) {
++    FlutterViewController* strongSelf = weakSelf;
++    if (!strongSelf) {
++      return;
++    }
++    [strongSelf sendSynthesizedPressType:pressType pressed:pressed];
++  };
++}
++
++- (void)setupDirectionalGamepadFallbacks:(GCMicroGamepad*)gamepad {
++  // The 2021 2nd-generation Siri Remote exposes physical outer-ring clicks
++  // as a dedicated digital cardinal dpad. This avoids treating touch-surface
++  // swipes or lift drift as button clicks.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wunguarded-availability-new"
++  if (GCInputDirectionalCardinalDpad != nil) {
++    GCControllerDirectionPad* cardinalDpad = gamepad.dpads[GCInputDirectionalCardinalDpad];
++    if (cardinalDpad != nil) {
++      [self setupGameControllerButton:cardinalDpad.up pressType:UIPressTypeUpArrow];
++      [self setupGameControllerButton:cardinalDpad.down pressType:UIPressTypeDownArrow];
++      [self setupGameControllerButton:cardinalDpad.left pressType:UIPressTypeLeftArrow];
++      [self setupGameControllerButton:cardinalDpad.right pressType:UIPressTypeRightArrow];
++    }
++  }
++
++  if (GCInputDirectionalCenterButton != nil) {
++    GCControllerButtonInput* centerButton = gamepad.buttons[GCInputDirectionalCenterButton];
++    [self setupGameControllerButton:centerButton pressType:UIPressTypeSelect];
++  }
++#pragma clang diagnostic pop
++}
++
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -980,10 +1031,9 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+   // resolve a swipe gesture in Dart. We deliberately do NOT synthesize arrow
+   // keys from analog dpad values here — those would fire spurious "opposite
+   // direction" events as the finger naturally pivots through the touch
+-  // surface during a lift. Directional clicks come from the UIPress recognizer
+-  // path (pressesBegan → maybeSynthesizeForPress), which fires on actual
+-  // physical edge clicks regardless of skin contact (so fingernail clicks
+-  // work too).
++  // surface during a lift. Directional clicks come from the UIKit press path
++  // (pressesBegan → maybeSynthesizeForPress) with a GameController cardinal
++  // dpad fallback for the 2021 Siri Remote's physical outer ring.
+   gamepad.dpad.valueChangedHandler =
+       ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
+         FlutterViewController* strongSelf = weakSelf;
+@@ -992,6 +1042,7 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+         }
+         [strongSelf sendGamepadTouchesWithType:@"loc" x:xValue y:yValue];
+       };
++  [self setupDirectionalGamepadFallbacks:gamepad];
+ }
+ 
+ - (void)setupControllers {  // TODO: dangerous, multiple registrations can happen!

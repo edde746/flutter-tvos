@@ -1,0 +1,77 @@
+From 8a96718074ed1c0fab761afee8506efc1126d008 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:31:19 +0200
+Subject: [PATCH 02/53] tvos: port build flags and fml headers
+
+
+diff --git a/engine/src/flutter/BUILD.gn b/engine/src/flutter/BUILD.gn
+index 417a4b78..f61be8df 100644
+--- a/engine/src/flutter/BUILD.gn
++++ b/engine/src/flutter/BUILD.gn
+@@ -175,7 +175,8 @@ group("flutter") {
+ 
+   if ((flutter_runtime_mode == "debug" || flutter_runtime_mode == "profile") &&
+       is_ios) {
+-    public_deps += [ "//flutter/testing/ios_scenario_app" ]
++    # tvos: scenario_app does not build for tvOS
++    # public_deps += [ "//flutter/testing/ios_scenario_app" ]
+   }
+ 
+   # Build the standalone Embedder API SDK for platforms that don't vend all
+diff --git a/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn b/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn
+index 5f1a172b..de64db0f 100644
+--- a/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn
++++ b/engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn
+@@ -23,7 +23,7 @@ source_set("ocmock_src") {
+     "-Wno-misleading-indentation",
+   ]
+   if (is_ios) {
+-    cflags += [ "-mios-simulator-version-min=$ios_testing_deployment_target" ]
++    cflags += [ "-mappletvsimulator-version-min=$ios_testing_deployment_target" ]
+   }
+ 
+   sources = [
+diff --git a/engine/src/flutter/display_list/BUILD.gn b/engine/src/flutter/display_list/BUILD.gn
+index e72c97d5..36c26512 100644
+--- a/engine/src/flutter/display_list/BUILD.gn
++++ b/engine/src/flutter/display_list/BUILD.gn
+@@ -347,7 +347,7 @@ if (is_ios && enable_unittests) {
+     configs += [ "//flutter/benchmarking:benchmark_library_config" ]
+     cflags = [
+       "-fobjc-arc",
+-      "-mios-simulator-version-min=$ios_testing_deployment_target",
++      "-mappletvsimulator-version-min=$ios_testing_deployment_target",
+     ]
+     ldflags =
+         [ "-Wl,-install_name,@rpath/libios_display_list_benchmarks.dylib" ]
+diff --git a/engine/src/flutter/fml/build_config.h b/engine/src/flutter/fml/build_config.h
+index aa2f0d7b..8a2197b8 100644
+--- a/engine/src/flutter/fml/build_config.h
++++ b/engine/src/flutter/fml/build_config.h
+@@ -26,10 +26,10 @@
+ // is really mac/ios.
+ #include <TargetConditionals.h>
+ #define FML_OS_MACOSX 1
+-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
++#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || (defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #define FML_OS_IOS 1
+ #endif  // defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+-#if defined(TARGET_IPHONE_SIMULATOR) && TARGET_IPHONE_SIMULATOR
++#if (defined(TARGET_IPHONE_SIMULATOR) && TARGET_IPHONE_SIMULATOR) || (defined(TARGET_TV_SIMULATOR) && TARGET_TV_SIMULATOR)
+ #define FML_OS_IOS_SIMULATOR 1
+ #endif  // defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
+ #elif defined(__linux__)
+diff --git a/engine/src/flutter/fml/logging.cc b/engine/src/flutter/fml/logging.cc
+index 6e101489..905ac222 100644
+--- a/engine/src/flutter/fml/logging.cc
++++ b/engine/src/flutter/fml/logging.cc
+@@ -139,6 +139,9 @@ LogMessage::~LogMessage() {
+     __android_log_write(priority, "flutter", stream_.str().c_str());
+ #elif defined(FML_OS_IOS)
+     syslog(LOG_ALERT, "%s", stream_.str().c_str());
++#ifndef NDEBUG
++    return;
++#endif
+ #elif defined(OS_FUCHSIA)
+     FuchsiaLogSeverity severity;
+     switch (severity_) {

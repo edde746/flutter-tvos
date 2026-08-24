@@ -1,0 +1,481 @@
+From ca9bd5fb7721af26bde5f84a387291a235e780e5 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:16:10 +0200
+Subject: [PATCH 14/53] tvos: revert dart/skia fork deps, apply as local
+ patches post-sync
+
+
+diff --git a/DEPS b/DEPS
+index b8530a9c..270f5af0 100644
+--- a/DEPS
++++ b/DEPS
+@@ -293,9 +293,11 @@ deps = {
+    Var('dart_git') + '/ai.git' + '@' + Var('dart_ai_rev'),
+ 
+   'engine/src/flutter/third_party/dart':
+-  # tvOS port: pointing at LibertyGlobal fork pinned at 3.27.4.
+-  # Original: Var('dart_git') + '/sdk.git' + '@' + Var('dart_revision'),
+-   Var('upc_git') + '/flutter-tvos-dart.git' + '@' + Var('upc_revision'),
++  # tvOS: staying on upstream dart for gclient sync compatibility. The
++  # LibertyGlobal dart fork at 3.27.4 carries a small 5-file tvOS patch
++  # (ARM CPU + macOS process + platform globals) which is applied post-sync
++  # via tvos_patches/dart-tvos.diff. See TVOS_PORT_NOTES.md.
++   Var('dart_git') + '/sdk.git' + '@' + Var('dart_revision'),
+ 
+   # WARNING: Unused Dart dependencies in the list below till "WARNING:" marker are removed automatically - see create_updated_flutter_deps.py.
+ 
+@@ -481,9 +483,10 @@ deps = {
+    Var('flutter_git') + '/third_party/freetype2' + '@' + 'be4bcb57914154fc1b9e2900bf8e4b516057e2b8',
+ 
+   'engine/src/flutter/third_party/skia':
+-  # tvOS port: pointing at LibertyGlobal fork pinned at 3.27.4.
+-  # Original: Var('skia_git') + '/skia.git' + '@' +  Var('skia_revision'),
+-   Var('upc_git') + '/flutter-tvos-skia.git' + '@' + Var('upc_revision'),
++  # tvOS: staying on upstream skia. The LibertyGlobal skia fork at 3.27.4
++  # carries a small 4-file Metal backend patch (GrMtlCaps, GrMtlCommandBuffer,
++  # GrMtlGpu, MtlCaps) applied post-sync via tvos_patches/skia-tvos.diff.
++   Var('skia_git') + '/skia.git' + '@' +  Var('skia_revision'),
+ 
+   'engine/src/flutter/third_party/ocmock':
+    Var('flutter_git') + '/third_party/ocmock' + '@' +  Var('ocmock_rev'),
+diff --git a/TVOS_PORT_NOTES.md b/TVOS_PORT_NOTES.md
+index bb6ac108..97787539 100644
+--- a/TVOS_PORT_NOTES.md
++++ b/TVOS_PORT_NOTES.md
+@@ -9,21 +9,24 @@ All commits are on branch `tvos-port` (local only).
+ 
+ ## Architectural decisions
+ 
+-1. **DEPS**
++1. **DEPS** — *revised strategy*
+    - 3.41.6 has a top-level `DEPS` at the flutter repo root (monorepo layout).
+      The old `src` buildroot entry no longer exists (buildroot absorbed into
+      the repo), and `perfetto` moved under `dart/third_party`.
+-   - We added the `upc_git` / `upc_revision` vars and switched the **dart** and
+-     **skia** deps to `LibertyGlobal/flutter-tvos-{dart,skia}@3.27.4`.
+-   - Buildroot and perfetto forks are intentionally *not* applied: there is no
+-     analogous top-level entry in 3.41.6 and applying them would require
+-     restructuring the monorepo layout. Follow-up work: investigate whether
+-     LibertyGlobal's buildroot changes are needed at all for tvOS (or whether
+-     they were iOS-simulator fixes already landed upstream in 3.41.6).
+-   - Known compile risk: the LibertyGlobal forks are pinned at 3.27.4 versions
+-     of Dart/Skia, but Flutter 3.41.6 expects newer revisions per the rest of
+-     `DEPS`. **Expect API mismatches on first compile; this is a known issue
+-     that the user agreed to debug at compile time.**
++   - **Dart and skia remain on upstream** (not forked via DEPS). LibertyGlobal's
++     tvOS patches to those repos are *tiny* — dart is 5 files (ARM CPU + macOS
++     process + platform globals), skia is 4 files (Metal GPU backend). Applying
++     them as **local patches over upstream 3.41.6 dart/skia** is simpler than
++     wrangling gclient to pull the forks at mismatched versions.
++   - Patches live at `tvos_patches/{dart,skia}-tvos.diff`. Run
++     `tvos_patches/apply.sh` after every `gclient sync -D` (sync wipes local
++     commits in gclient-managed repos).
++   - Caveat: the patches were authored against Dart 3.6.2 and Skia ~2024-10-09.
++     Flutter 3.41.6 uses newer revisions. `apply.sh` first tries a clean
++     `git apply`, then falls back to `git apply --3way`; if both fail, the
++     patches need manual re-porting.
++   - The `upc_git` / `upc_revision` vars are kept in DEPS as a breadcrumb /
++     documentation, even though they are no longer referenced.
+ 
+ 2. **Impeller Metal backend** (`allocator_mtl.mm`, `context_mtl.mm`,
+    `command_buffer_mtl.mm`, `sampler_library_mtl.mm`): 3.41.6 simplified these
+diff --git a/tvos_patches/apply.sh b/tvos_patches/apply.sh
+new file mode 100755
+index 00000000..13ee60e6
+--- /dev/null
++++ b/tvos_patches/apply.sh
+@@ -0,0 +1,70 @@
++#!/bin/bash
++# Apply LibertyGlobal tvOS patches to gclient-synced dart and skia directories.
++# Run this after every `gclient sync -D` because gclient will reset the repos
++# to their DEPS-pinned revisions, wiping these local patches.
++#
++# The patches originate from:
++#   https://github.com/LibertyGlobal/flutter-tvos-dart  (branch 3.27.4)
++#   https://github.com/LibertyGlobal/flutter-tvos-skia  (branch 3.27.4)
++#
++# They were authored against Dart 3.6.2 and Skia @ ~2024-10-09. Flutter 3.41.6
++# uses newer revisions of both, so these patches may have conflicts that need
++# resolution. If `git apply` fails, inspect the rejected hunks (*.rej files)
++# and port the tvOS changes manually into the current upstream code.
++
++set -e
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
++REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
++
++DART_DIR="$REPO_ROOT/engine/src/flutter/third_party/dart"
++SKIA_DIR="$REPO_ROOT/engine/src/flutter/third_party/skia"
++
++apply_patch() {
++  local target="$1"
++  local patch="$2"
++  local name="$3"
++
++  if [ ! -d "$target" ]; then
++    echo "ERROR: $name directory not found at $target"
++    echo "Run 'gclient sync -D' from $REPO_ROOT first."
++    exit 1
++  fi
++
++  cd "$target"
++
++  # Check if already applied (look for a sentinel change from the patch).
++  if git log --oneline -1 --grep="tvos" | grep -q tvos 2>/dev/null; then
++    echo "[$name] tvOS patch appears already applied (found tvos commit). Skipping."
++    return
++  fi
++
++  echo "[$name] Checking patch application..."
++  if git apply --check "$patch" 2>/dev/null; then
++    echo "[$name] Applying patch..."
++    git apply "$patch"
++    git add -A
++    git -c user.name="tvOS port" -c user.email="tvos@local" \
++        commit -m "tvos 3.27.4 changes (ported from LibertyGlobal)" --no-verify
++    echo "[$name] Applied and committed."
++  else
++    echo "[$name] WARNING: patch does not apply cleanly against current tree."
++    echo "[$name] Falling back to 3-way merge..."
++    if git apply --3way "$patch"; then
++      git add -A
++      git -c user.name="tvOS port" -c user.email="tvos@local" \
++          commit -m "tvos 3.27.4 changes (ported from LibertyGlobal, 3-way)" --no-verify
++      echo "[$name] 3-way apply succeeded."
++    else
++      echo "[$name] 3-way apply also failed. Manual port required."
++      echo "[$name] See rejected hunks in $target"
++      echo "[$name] Reference original patch: $patch"
++      exit 1
++    fi
++  fi
++}
++
++apply_patch "$DART_DIR" "$SCRIPT_DIR/dart-tvos.diff" "dart"
++apply_patch "$SKIA_DIR" "$SCRIPT_DIR/skia-tvos.diff" "skia"
++
++echo "Done. dart and skia now carry local tvOS patches."
+diff --git a/tvos_patches/dart-tvos.diff b/tvos_patches/dart-tvos.diff
+new file mode 100644
+index 00000000..75396dab
+--- /dev/null
++++ b/tvos_patches/dart-tvos.diff
+@@ -0,0 +1,120 @@
++diff --git a/pkg/analysis_server/lib/src/server/dev_server.dart b/pkg/analysis_server/lib/src/server/dev_server.dart
++index 6da843a9ff4..0d38d902f73 100644
++--- a/pkg/analysis_server/lib/src/server/dev_server.dart
+++++ b/pkg/analysis_server/lib/src/server/dev_server.dart
++@@ -58,7 +58,7 @@ class DevAnalysisServer {
++             (params['analysis'] as Map<String, Object>)['isAnalyzing'] as bool;
++         if (isAnalyzing) {
++           beganAnalysis = true;
++-        } else if (beganAnalysis) {
+++        } else if (beganAnalysis && !whenComplete.isCompleted) {
++           beganAnalysis = false;
++           timer.stop();
++           var seconds = timer.elapsedMilliseconds / 1000.0;
++diff --git a/runtime/bin/process_macos.cc b/runtime/bin/process_macos.cc
++index 24300eeb3c7..9cf125747ab 100644
++--- a/runtime/bin/process_macos.cc
+++++ b/runtime/bin/process_macos.cc
++@@ -166,9 +166,11 @@ class ExitCodeHandler {
++     running_ = false;
++ 
++     // Fork to wake up waitpid.
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++     if (TEMP_FAILURE_RETRY(fork()) == 0) {
++       _Exit(0);
++     }
+++#endif    
++ 
++     monitor_->Notify();
++ 
++@@ -299,6 +301,7 @@ class ProcessStarter {
++   }
++ 
++   int Start() {
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++     // Create pipes required.
++     int err = CreatePipes();
++     if (err != 0) {
++@@ -388,6 +391,7 @@ class ProcessStarter {
++     ASSERT(exec_control_[1] == -1);
++ 
++     *id_ = pid;
+++#endif
++     return 0;
++   }
++ 
++@@ -446,6 +450,7 @@ class ProcessStarter {
++   }
++ 
++   void ExecProcess() {
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++     if (mode_ == kNormal) {
++       if (TEMP_FAILURE_RETRY(dup2(write_out_[0], STDIN_FILENO)) == -1) {
++         ReportChildError();
++@@ -476,9 +481,11 @@ class ProcessStarter {
++ 
++     execvp(path_, const_cast<char* const*>(program_arguments_));
++     ReportChildError();
+++#endif
++   }
++ 
++   void ExecDetachedProcess() {
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++     if (mode_ == kDetached) {
++       ASSERT(write_out_[0] == -1);
++       ASSERT(write_out_[1] == -1);
++@@ -541,6 +548,7 @@ class ProcessStarter {
++       // to prevent deadlocks.
++       _Exit(0);
++     }
+++#endif
++   }
++ 
++   int RegisterProcess(pid_t pid) {
++diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
++index 124b85be8d6..8d59f0538e0 100644
++--- a/runtime/platform/globals.h
+++++ b/runtime/platform/globals.h
++@@ -119,7 +119,7 @@
++ // Define the flavor of Mac OS we are running on.
++ #include <TargetConditionals.h>
++ #define DART_HOST_OS_MACOS 1
++-#if TARGET_OS_IPHONE
+++#if defined(TARGET_OS_IPHONE) || defined(TARGET_OS_TV)
++ #define DART_HOST_OS_IOS 1
++ #endif
++ 
++diff --git a/runtime/vm/compiler/ffi/abi.cc b/runtime/vm/compiler/ffi/abi.cc
++index 66fa5a8d564..8f0a4458794 100644
++--- a/runtime/vm/compiler/ffi/abi.cc
+++++ b/runtime/vm/compiler/ffi/abi.cc
++@@ -54,7 +54,7 @@ static_assert(offsetof(AbiAlignmentUint64, i) == 8,
++ #elif defined(DART_TARGET_OS_LINUX)
++ #define DART_TARGET_OS_NAME Linux
++ #elif defined(DART_TARGET_OS_MACOS)
++-#if DART_TARGET_OS_MACOS_IOS
+++#if defined(DART_TARGET_OS_MACOS_IOS) || defined(TARGET_OS_TV)
++ #define DART_TARGET_OS_NAME IOS
++ #else
++ #define DART_TARGET_OS_NAME MacOS
++diff --git a/runtime/vm/cpu_arm.cc b/runtime/vm/cpu_arm.cc
++index d40147b2ea0..4ad7469f77a 100644
++--- a/runtime/vm/cpu_arm.cc
+++++ b/runtime/vm/cpu_arm.cc
++@@ -11,7 +11,7 @@
++ #include "vm/cpuinfo.h"
++ 
++ #if !defined(TARGET_HOST_MISMATCH)
++-#if defined(DART_HOST_OS_MACOS) || defined(DART_HOST_OS_IOS)
+++#if defined(DART_TARGET_OS_ANDROID) || defined(DART_TARGET_OS_MACOS_IOS) || defined(TARGET_OS_TV)
++ #include <libkern/OSCacheControl.h>
++ #elif defined(DART_HOST_OS_WINDOWS)
++ #include <processthreadsapi.h>
++@@ -108,6 +108,7 @@ bool HostCPUFeatures::integer_division_supported_ = false;
++ bool HostCPUFeatures::neon_supported_ = false;
++ bool HostCPUFeatures::hardfp_supported_ = false;
++ const char* HostCPUFeatures::hardware_ = nullptr;
+++intptr_t HostCPUFeatures::store_pc_read_offset_ = 8;
++ #if defined(DEBUG)
++ bool HostCPUFeatures::initialized_ = false;
++ #endif
+diff --git a/tvos_patches/skia-tvos.diff b/tvos_patches/skia-tvos.diff
+new file mode 100644
+index 00000000..d8de16f2
+--- /dev/null
++++ b/tvos_patches/skia-tvos.diff
+@@ -0,0 +1,192 @@
++diff --git a/src/gpu/ganesh/mtl/GrMtlCaps.mm b/src/gpu/ganesh/mtl/GrMtlCaps.mm
++index 8d0bc6e364..36d74a5941 100644
++--- a/src/gpu/ganesh/mtl/GrMtlCaps.mm
+++++ b/src/gpu/ganesh/mtl/GrMtlCaps.mm
++@@ -102,8 +102,10 @@
++             return true;
++         }
++     }
++-#elif defined(SK_BUILD_FOR_IOS)
++-    // TODO: support tvOS
+++#endif
+++
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+++#if defined(SK_BUILD_FOR_IOS)
++    *gpuFamily = GPUFamily::kApple;
++     // iOS 12
++     if (@available(iOS 12.0, tvOS 12.0, *)) {
++@@ -165,76 +167,47 @@
++     // We don't support earlier OSes
++ #endif
++ 
+++#else
+++    *gpuFamily = GPUFamily::kApple;
+++
+++    if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily2_v2]) {
+++        *group = 2;
+++        return true;
+++    }
+++    if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily2_v1]) {
+++        *group = 2;
+++        return true;
+++    }
+++    if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily1_v4]) {
+++        *group = 1;
+++        return true;
+++    }
+++    if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily1_v3]) {
+++        *group = 1;
+++        return true;
+++    }
+++    if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily1_v2]) {
+++        *group = 1;
+++        return true;
+++    }
+++    if ([device supportsFeatureSet:MTLFeatureSet_tvOS_GPUFamily1_v1]) {
+++         *group = 1;
+++        return true;
+++    }
+++#endif
+++
++ #endif // GR_METAL_SDK_VERSION < 300
++ 
++     // No supported GPU families were found
++     return false;
++ }
++ 
++-bool GrMtlCaps::getGPUFamily(id<MTLDevice> device, GPUFamily* gpuFamily, int* group) {
++-#if GR_METAL_SDK_VERSION >= 220
++-    if (@available(macOS 10.15, iOS 13.0, tvOS 13.0, *)) {
++-        // Apple Silicon
++-#if GR_METAL_SDK_VERSION >= 230
++-        if ([device supportsFamily:MTLGPUFamilyApple7]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 7;
++-            return true;
++-        }
++-#endif
++-#ifdef SK_BUILD_FOR_IOS
++-        if ([device supportsFamily:MTLGPUFamilyApple6]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 6;
++-            return true;
++-        }
++-        if ([device supportsFamily:MTLGPUFamilyApple5]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 5;
++-            return true;
++-        }
++-        if ([device supportsFamily:MTLGPUFamilyApple4]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 4;
++-            return true;
++-        }
++-        if ([device supportsFamily:MTLGPUFamilyApple3]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 3;
++-            return true;
++-        }
++-        if ([device supportsFamily:MTLGPUFamilyApple2]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 2;
++-            return true;
++-        }
++-        if ([device supportsFamily:MTLGPUFamilyApple1]) {
++-            *gpuFamily = GPUFamily::kApple;
++-            *group = 1;
++-            return true;
++-        }
++-#endif
+++// Apple 6 and 7 family is not available on TV
+++// https://developer.apple.com/documentation/metal/mtlgpufamily/apple6
+++// https://developer.apple.com/documentation/metal/mtlgpufamily/apple7
++ 
++-        // Older Macs
++-        // MTLGPUFamilyMac1, MTLGPUFamilyMacCatalyst1, and MTLGPUFamilyMacCatalyst2 are deprecated.
++-        // However, some MTLGPUFamilyMac1 only hardware is still supported.
++-        // MacCatalyst families have the same features as Mac, so treat them the same
++-        if ([device supportsFamily:MTLGPUFamilyMac2] ||
++-            [device supportsFamily:(MTLGPUFamily)4002/*MTLGPUFamilyMacCatalyst2*/]) {
++-            *gpuFamily = GPUFamily::kMac;
++-            *group = 2;
++-            return true;
++-        }
++-        if ([device supportsFamily:(MTLGPUFamily)2001/*MTLGPUFamilyMac1*/] ||
++-            [device supportsFamily:(MTLGPUFamily)4001/*MTLGPUFamilyMacCatalyst1*/]) {
++-            *gpuFamily = GPUFamily::kMac;
++-            *group = 1;
++-            return true;
++-        }
++-    }
++-#endif
++-
++-    // No supported GPU families were found
+++bool GrMtlCaps::getGPUFamily(id<MTLDevice> device, GPUFamily* gpuFamily, int* group) {
+++    // symbol(s) not found for architecture x86_64
++     return false;
++ }
++ 
++diff --git a/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm b/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm
++index 3bd7a192c1..1f463cfecf 100644
++--- a/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm
+++++ b/src/gpu/ganesh/mtl/GrMtlCommandBuffer.mm
++@@ -23,6 +23,9 @@
++ 
++ sk_sp<GrMtlCommandBuffer> GrMtlCommandBuffer::Make(id<MTLCommandQueue> queue) {
++     id<MTLCommandBuffer> mtlCommandBuffer;
+++#if (defined(TARGET_OS_TV) && TARGET_OS_TV)
+++    mtlCommandBuffer = [queue commandBuffer];
+++#else    
++ #if GR_METAL_SDK_VERSION >= 230
++     if (@available(macOS 11.0, iOS 14.0, tvOS 14.0, *)) {
++         MTLCommandBufferDescriptor* desc = [[MTLCommandBufferDescriptor alloc] init];
++@@ -37,6 +40,7 @@
++     if (nil == mtlCommandBuffer) {
++         return nullptr;
++     }
+++#endif    
++ 
++ #ifdef SK_ENABLE_MTL_DEBUG_INFO
++     mtlCommandBuffer.label = @"GrMtlCommandBuffer::Make";
++diff --git a/src/gpu/ganesh/mtl/GrMtlGpu.mm b/src/gpu/ganesh/mtl/GrMtlGpu.mm
++index 46d6fcbf7d..f4d23b9490 100644
++--- a/src/gpu/ganesh/mtl/GrMtlGpu.mm
+++++ b/src/gpu/ganesh/mtl/GrMtlGpu.mm
++@@ -1821,10 +1821,12 @@ void copy_src_data(char* dst,
++     }
++ #endif  // SK_BUILD_FOR_MAC
++ #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || __IPHONE_OS_VERSION_MAX_ALLOWED >= 130000
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++     if (@available(macOS 10.15, iOS 13.0, tvOS 13.0, *)) {
++         writer->appendBool("hasUnifiedMemory", fDevice.hasUnifiedMemory);
++     }
++ #endif
+++#endif
++ #ifdef SK_BUILD_FOR_MAC
++ #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
++     if (@available(macOS 10.15, *)) {
++@@ -1904,10 +1906,12 @@ void copy_src_data(char* dst,
++     if (@available(macOS 10.14, iOS 12.0, tvOS 12.0, *)) {
++         writer->appendU64("maxArgumentBufferSamplerCount", fDevice.maxArgumentBufferSamplerCount);
++     }
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)    
++ #ifdef SK_BUILD_FOR_IOS
++     if (@available(iOS 13.0, tvOS 13.0, *)) {
++         writer->appendU64("sparseTileSizeInBytes", fDevice.sparseTileSizeInBytes);
++     }
+++#endif
++ #endif
++     writer->endObject();
++ 
++diff --git a/src/gpu/graphite/mtl/MtlCaps.mm b/src/gpu/graphite/mtl/MtlCaps.mm
++index 871575ff10..fdddcea316 100644
++--- a/src/gpu/graphite/mtl/MtlCaps.mm
+++++ b/src/gpu/graphite/mtl/MtlCaps.mm
++@@ -40,6 +40,7 @@
++ }
++ 
++ bool MtlCaps::GetGPUFamily(id<MTLDevice> device, GPUFamily* gpuFamily, int* group) {
+++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++ #if SKGPU_GRAPHITE_METAL_SDK_VERSION >= 220
++     if (@available(macOS 10.15, iOS 13.0, tvOS 13.0, *)) {
++         // Apple Silicon

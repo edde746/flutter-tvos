@@ -1,0 +1,64 @@
+From 009441c9cf10d3c17de68dd55610e553d3f2bfbf Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Mon, 24 Aug 2026 10:03:38 +0200
+Subject: [PATCH 52/53] tvos: stub FlutterKeyboardInsetManager (no keyboard
+ insets on tvOS)
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterKeyboardInsetManager.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterKeyboardInsetManager.mm
+index ad10e93e..902c1dc9 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterKeyboardInsetManager.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterKeyboardInsetManager.mm
+@@ -14,6 +14,31 @@
+ #import "flutter/shell/platform/embedder/embedder.h"
+ #import "flutter/third_party/spring_animation/spring_animation.h"
+ 
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++
++// tvos: there is no software keyboard inset — text entry uses the full-screen
++// system keyboard — and the UIKeyboard* notification APIs this manager is
++// built on are unavailable. Keep the class as an inert stub so callsites need
++// no per-use guards.
++@implementation FlutterKeyboardInsetManager
++
++- (instancetype)initWithDelegate:(id<FlutterKeyboardInsetManagerDelegate>)delegate {
++  return [super init];
++}
++
++- (void)handleKeyboardNotification:(NSNotification*)notification {
++}
++
++- (void)hideKeyboardImmediately {
++}
++
++- (void)invalidate {
++}
++
++@end
++
++#else  // TARGET_OS_TV
++
+ @interface FlutterKeyboardInsetManager ()
+ 
+ @property(nonatomic, weak) id<FlutterKeyboardInsetManagerDelegate> delegate;
+@@ -432,3 +457,5 @@ - (void)invalidate {
+ }
+ 
+ @end
++
++#endif  // TARGET_OS_TV
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 864cba26..7d38b781 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -608,7 +608,10 @@ - (void)performCommonViewControllerInitialization {
+ #endif
+ 
+   _accessibilityFeatures = [[FlutterAccessibilityFeatures alloc] init];
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
++  // tvos: no keyboard insets; the manager stays nil and every use no-ops.
+   _keyboardInsetManager = [[FlutterKeyboardInsetManager alloc] initWithDelegate:self];
++#endif
+ 
+   // TODO(cbracken): https://github.com/flutter/flutter/issues/157140
+   // Eliminate method calls in initializers and dealloc.

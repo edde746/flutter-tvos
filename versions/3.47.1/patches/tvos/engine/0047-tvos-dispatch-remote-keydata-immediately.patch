@@ -1,0 +1,39 @@
+From 366a1b13b3282fad91346307424ec135e8f4f57c Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 29 May 2026 07:22:29 +0200
+Subject: [PATCH 47/53] tvos: dispatch remote keydata immediately
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 61465d81..d185d663 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -1002,6 +1002,10 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ #pragma mark - remote tap handling
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+ 
++static void FlutterTvosSynthesizedKeyEventResponse(bool handled, void* userData) {
++  os_log(OS_LOG_DEFAULT, "Flutter tvOS synthesized key response handled=%{public}d", handled);
++}
++
+ - (NSMutableSet<NSNumber*>*)synthesizedPressedKeys {
+   if (!_synthesizedPressedKeys) {
+     _synthesizedPressedKeys = [NSMutableSet set];
+@@ -1041,10 +1045,15 @@ - (BOOL)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+         .physical = physical,
+         .logical = logical,
+         .character = nullptr,
+-        .synthesized = false,
++        // The tvOS remote path sends keydata directly without a paired legacy
++        // flutter/keyevent message, so mark it synthesized to make the
++        // framework dispatch the solitary keydata packet immediately.
++        .synthesized = true,
+         .device_type = kFlutterKeyEventDeviceTypeDirectionalPad,
+     };
+-    [self.engine sendKeyEvent:flutterEvent callback:nullptr userData:nullptr];
++    [self.engine sendKeyEvent:flutterEvent
++                     callback:FlutterTvosSynthesizedKeyEventResponse
++                     userData:nullptr];
+     return YES;
+   }
+   return NO;

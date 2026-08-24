@@ -1,0 +1,26 @@
+From 67f13cc7200e3aa0814398b4c1e468fae8a4a927 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:57:31 +0200
+Subject: [PATCH 20/53] tvos: add appletvos/appletvsimulator to darwin_sdk.py
+ SDKS
+
+
+diff --git a/engine/src/build/mac/darwin_sdk.py b/engine/src/build/mac/darwin_sdk.py
+index 75568030..a204743a 100644
+--- a/engine/src/build/mac/darwin_sdk.py
++++ b/engine/src/build/mac/darwin_sdk.py
+@@ -21,7 +21,13 @@ PREBUILTS = os.path.realpath(os.path.join(
+ ))
+ 
+ # Supported SDKs.
+-SDKS = ['iphoneos', 'iphonesimulator', 'macosx']
++SDKS = [
++    'iphoneos',
++    'iphonesimulator',
++    'macosx',
++    'appletvos',
++    'appletvsimulator',
++]
+ 
+ 
+ def parse_arguments():

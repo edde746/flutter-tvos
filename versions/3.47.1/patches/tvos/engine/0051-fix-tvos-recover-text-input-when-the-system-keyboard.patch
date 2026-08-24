@@ -1,0 +1,406 @@
+From 6987832dfdd1e447d9d24915568172d448885e72 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Wed, 19 Aug 2026 02:08:40 +0200
+Subject: [PATCH 51/53] fix(tvos): recover text input when the system keyboard
+ fails to present
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Taking first responder for a new editing session while the previous
+keyboard's UISystemInputViewController is still animating out makes UIKit
+drop the new presentation: the session begins, no keyboard appears, and —
+because an active session routed every remote press to the system — nothing
+consumes any press. The app is dead to the remote and Menu suspends it.
+Reached from Flutter whenever TextInput.show lands within ~500ms of a
+keyboard dismissal (e.g. a form that probes a server URL on submit and then
+focuses the username field).
+
+Two structural changes:
+
+- FlutterTextInputView parks becomeFirstResponder while the host view
+  controller still has a presentedViewController, retrying on the main
+  queue (50ms, bounded at 2s) so the fresh presentation starts only once
+  the slot is free. Superseding become/resign calls invalidate a parked
+  take via a generation counter.
+
+- FlutterViewController only grants the system ownership of remote presses
+  while a presentation actually exists to consume them
+  (isTvosNativeTextInputActive AND presentedViewController != nil); an
+  editing session whose keyboard is not on screen routes presses to the
+  engine, where the framework can recover the session.
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
+index 7da6c9af..77cdc97f 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm
+@@ -802,6 +802,10 @@ @interface FlutterTextInputPlugin ()
+ @property(nonatomic, readonly) UIView* hostView;
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+ - (void)setTvosNativeTextInputActive:(BOOL)active;
++// Redeclares the getter of the activeView property (declared in the second
++// class extension below) so FlutterTextInputView's implementation can check
++// whether it is still the view a deferred first-responder take was meant for.
++- (FlutterTextInputView*)activeView;
+ #endif
+ @end
+ 
+@@ -824,6 +828,10 @@ @interface FlutterTextInputView ()
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+ @property(nonatomic, readonly) UITextField* tvosTextInputProxy;
++// YES while a becomeFirstResponder is parked waiting for an in-flight
++// UIKit presentation (usually the previous keyboard session dismissing)
++// to finish.
++@property(nonatomic, readonly) BOOL tvosDeferredFirstResponderPending;
+ - (void)syncTvosTextInputProxy;
+ - (void)tvosTextInputProxyDidBeginEditing;
+ - (void)tvosTextInputProxyDidChange;
+@@ -904,6 +912,11 @@ @implementation FlutterTextInputView {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+   FlutterTvosTextInputProxy* _tvosTextInputProxy;
+   BOOL _syncingTvosTextInputProxy;
++  // Increments on every becomeFirstResponder/resignFirstResponder so a
++  // deferred first-responder take scheduled for an older call fires as a
++  // no-op instead of resurrecting a session the framework has moved past.
++  NSUInteger _tvosFirstResponderGeneration;
++  BOOL _tvosDeferredFirstResponderPending;
+ #endif
+ }
+ 
+@@ -1571,14 +1584,72 @@ - (BOOL)canBecomeFirstResponder {
+ }
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++// The tvOS system keyboard is a fullscreen UISystemInputViewController that
++// UIKit presents on (an ancestor of) the host view controller when the proxy
++// text field becomes first responder. Taking first responder while another
++// presentation is still on screen — most often the previous keyboard session
++// animating out after Return submitted a field — starts an editing session
++// whose keyboard never appears: UIKit completes the in-flight dismissal and
++// silently drops the new presentation. That leaves an active editing session
++// with nothing on screen to type into, so park the take until the
++// presentation slot is free.
+ - (BOOL)becomeFirstResponder {
+   if (!_isSystemKeyboardEnabled) {
+     return [super becomeFirstResponder];
+   }
++  _tvosFirstResponderGeneration++;
++  _tvosDeferredFirstResponderPending = NO;
++  if (!_tvosTextInputProxy.isFirstResponder && [self tvosPresentationInFlight]) {
++    // 40 × 50ms ≈ 2s: several times a keyboard dismissal transition. On
++    // budget exhaustion the take happens anyway, matching the undeferred
++    // behavior.
++    [self tvosDeferFirstResponderWithGeneration:_tvosFirstResponderGeneration attemptsLeft:40];
++    return YES;
++  }
+   [self syncTvosTextInputProxy];
+   return [_tvosTextInputProxy becomeFirstResponder];
+ }
+ 
++- (BOOL)tvosPresentationInFlight {
++  return self.textInputPlugin.viewController.presentedViewController != nil;
++}
++
++- (BOOL)tvosDeferredFirstResponderPending {
++  return _tvosDeferredFirstResponderPending;
++}
++
++- (void)tvosDeferFirstResponderWithGeneration:(NSUInteger)generation
++                                 attemptsLeft:(NSInteger)attemptsLeft {
++  _tvosDeferredFirstResponderPending = YES;
++  __weak FlutterTextInputView* weakSelf = self;
++  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(50 * NSEC_PER_MSEC)),
++                 dispatch_get_main_queue(), ^{
++    [weakSelf tvosContinueDeferredFirstResponderWithGeneration:generation
++                                                  attemptsLeft:attemptsLeft];
++  });
++}
++
++- (void)tvosContinueDeferredFirstResponderWithGeneration:(NSUInteger)generation
++                                            attemptsLeft:(NSInteger)attemptsLeft {
++  if (generation != _tvosFirstResponderGeneration) {
++    // Superseded by a newer become/resign; that call owns the state now.
++    return;
++  }
++  // The session this take was scheduled for may be gone by now.
++  if (_textInputClient == 0 || !_isSystemKeyboardEnabled ||
++      self.textInputPlugin.activeView != self || _tvosTextInputProxy.isFirstResponder) {
++    _tvosDeferredFirstResponderPending = NO;
++    return;
++  }
++  if (attemptsLeft > 0 && [self tvosPresentationInFlight]) {
++    [self tvosDeferFirstResponderWithGeneration:generation attemptsLeft:attemptsLeft - 1];
++    return;
++  }
++  _tvosDeferredFirstResponderPending = NO;
++  [self syncTvosTextInputProxy];
++  [_tvosTextInputProxy becomeFirstResponder];
++}
++
+ - (BOOL)isFirstResponder {
+   return _tvosTextInputProxy.isFirstResponder || [super isFirstResponder];
+ }
+@@ -1594,6 +1665,10 @@ - (void)reloadInputViews {
+ 
+ - (BOOL)resignFirstResponder {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++  // Resigning expresses that the session must end; a first-responder take
++  // still parked behind an in-flight presentation must not fire afterwards.
++  _tvosFirstResponderGeneration++;
++  _tvosDeferredFirstResponderPending = NO;
+   if (_tvosTextInputProxy.isFirstResponder) {
+     return [_tvosTextInputProxy resignFirstResponder];
+   }
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm
+index 035f0551..0229ab30 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTvosTest.mm
+@@ -19,6 +19,7 @@ @interface FlutterTextInputPlugin ()
+ 
+ @interface FlutterTextInputView ()
+ @property(nonatomic, readonly) UITextField* tvosTextInputProxy;
++@property(nonatomic, readonly) BOOL tvosDeferredFirstResponderPending;
+ - (void)setTextInputState:(NSDictionary*)state;
+ - (void)tvosTextInputProxyDidBeginEditing;
+ - (void)tvosTextInputProxyDidChange;
+@@ -54,6 +55,25 @@ - (void)tearDown {
+   [super tearDown];
+ }
+ 
++- (BOOL)spinRunLoopUntil:(BOOL (^)(void))condition timeout:(NSTimeInterval)timeout {
++  NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
++  while (!condition() && [deadline timeIntervalSinceNow] > 0) {
++    [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode
++                          beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
++  }
++  return condition();
++}
++
++// Models an in-flight UIKit presentation on the host view controller (most
++// often the previous keyboard session still animating out). Hold the returned
++// partial mock; -stopMocking models the presentation finishing.
++- (id)stubInFlightPresentation {
++  id partialMock = OCMPartialMock(_viewController);
++  OCMStub([(FlutterViewController*)partialMock presentedViewController])
++      .andReturn([[UIViewController alloc] init]);
++  return partialMock;
++}
++
+ - (NSMutableDictionary*)configuration {
+   return [@{
+     @"inputType" : @{@"name" : @"TextInputType.url"},
+@@ -158,6 +178,67 @@ - (void)testProxyEditingLifecycleControlsNativeRouting {
+   XCTAssertFalse(_viewController.tvosNativeTextInputActive);
+ }
+ 
++- (void)testBecomeFirstResponderDefersWhilePresentationInFlight {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++  id presentationStub = [self stubInFlightPresentation];
++
++  XCTAssertTrue([inputView becomeFirstResponder]);
++
++  // Parked: no first-responder take, no editing session while another
++  // presentation is still on screen.
++  XCTAssertTrue(inputView.tvosDeferredFirstResponderPending);
++  XCTAssertFalse(inputView.tvosTextInputProxy.isFirstResponder);
++  XCTAssertFalse(_viewController.tvosNativeTextInputActive);
++  [presentationStub stopMocking];
++}
++
++- (void)testDeferredFirstResponderRetakesWhenPresentationEnds {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++  id presentationStub = [self stubInFlightPresentation];
++
++  [inputView becomeFirstResponder];
++  XCTAssertTrue(inputView.tvosDeferredFirstResponderPending);
++
++  // The presentation finishing frees the slot; the parked take must fire.
++  [presentationStub stopMocking];
++  XCTAssertTrue([self spinRunLoopUntil:^BOOL {
++                        return !inputView.tvosDeferredFirstResponderPending;
++                      }
++                               timeout:2.0]);
++}
++
++- (void)testResignCancelsDeferredFirstResponder {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++  id presentationStub = [self stubInFlightPresentation];
++
++  [inputView becomeFirstResponder];
++  XCTAssertTrue(inputView.tvosDeferredFirstResponderPending);
++
++  [inputView resignFirstResponder];
++  XCTAssertFalse(inputView.tvosDeferredFirstResponderPending);
++
++  // The cancelled take must not fire once the presentation clears.
++  [presentationStub stopMocking];
++  [self spinRunLoopUntil:^BOOL {
++         return NO;
++       }
++                 timeout:0.3];
++  XCTAssertFalse(inputView.tvosTextInputProxy.isFirstResponder);
++  XCTAssertFalse(_viewController.tvosNativeTextInputActive);
++}
++
++- (void)testBecomeFirstResponderWithoutPresentationDoesNotDefer {
++  [self setClientWithConfiguration:self.configuration];
++  FlutterTextInputView* inputView = _plugin.activeView;
++
++  [inputView becomeFirstResponder];
++
++  XCTAssertFalse(inputView.tvosDeferredFirstResponderPending);
++}
++
+ @end
+ 
+ #endif
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 8cd098bb..864cba26 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -1199,6 +1199,19 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+   return NO;
+ }
+ 
++// An active native editing session only owns remote input while its
++// fullscreen keyboard — a presented UISystemInputViewController — is actually
++// on screen. UIKit can end up with an editing session whose keyboard never
++// presented (or was torn down behind our back); routing presses to the system
++// in that state drops them into a void nothing consumes, leaving the app dead
++// to every remote press while Menu falls through and suspends it.
++// presentedViewController also reports presentations made by ancestor
++// controllers, so this reads exactly "some modal UIKit surface exists to
++// receive the press".
++- (BOOL)tvosSystemKeyboardOwnsInput {
++  return self.isTvosNativeTextInputActive && self.presentedViewController != nil;
++}
++
+ - (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+     uint64_t physical = 0;
+@@ -1219,7 +1232,7 @@ - (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4)
+         if (systemOwned) {
+           return FlutterTvosPressRouteSystem;
+         }
+-        if (self.isTvosNativeTextInputActive) {
++        if ([self tvosSystemKeyboardOwnsInput]) {
+           [self.systemOwnedRemotePressKeys addObject:key];
+           return FlutterTvosPressRouteSystem;
+         }
+@@ -1302,7 +1315,7 @@ - (UILongPressGestureRecognizer*)createRecognizerFor:(UIPressType)pressType
+ }
+ 
+ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+-  if (self.isTvosNativeTextInputActive && ![type isEqualToString:@"cancelled"]) {
++  if ([self tvosSystemKeyboardOwnsInput] && ![type isEqualToString:@"cancelled"]) {
+     return;
+   }
+   NSMutableDictionary* dictionary = [@{
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
+index bc3909f6..90d41c40 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
+@@ -58,6 +58,18 @@ - (void)sendKeyEvent:(const FlutterKeyEvent&)event
+   return press;
+ }
+ 
++// System ownership of remote presses requires the editing session's keyboard
++// to actually be on screen; the keyboard is a presented view controller, so
++// tests model "keyboard up" by stubbing presentedViewController. Callers must
++// hold the returned partial mock alive for the stub's lifetime and may
++// -stopMocking it to model the presentation disappearing.
++static id StubPresentedKeyboard(FlutterViewController* viewController) {
++  id partialMock = OCMPartialMock(viewController);
++  OCMStub([(FlutterViewController*)partialMock presentedViewController])
++      .andReturn([[UIViewController alloc] init]);
++  return partialMock;
++}
++
+ @interface FlutterViewControllerTvosPressTest : XCTestCase
+ @end
+ 
+@@ -172,11 +184,13 @@ - (void)testEngineOwnedPressFinishesAfterNativeTextInputStarts API_AVAILABLE(tvo
+ 
+   XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
+                  FlutterTvosPressRouteEngine);
++  id keyboardStub = StubPresentedKeyboard(viewController);
+   viewController.tvosNativeTextInputActive = YES;
+   XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
+                  FlutterTvosPressRouteEngine);
+   XCTAssertEqualObjects(engine.sentKeyEventTypes,
+                         (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
++  [keyboardStub stopMocking];
+ }
+ 
+ - (void)testSystemOwnedPressFinishesAfterNativeTextInputEnds API_AVAILABLE(tvos(13.4)) {
+@@ -185,6 +199,7 @@ - (void)testSystemOwnedPressFinishesAfterNativeTextInputEnds API_AVAILABLE(tvos(
+                                                                                 nibName:nil
+                                                                                  bundle:nil];
+ 
++  id keyboardStub = StubPresentedKeyboard(viewController);
+   viewController.tvosNativeTextInputActive = YES;
+   XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
+                  FlutterTvosPressRouteSystem);
+@@ -192,6 +207,23 @@ - (void)testSystemOwnedPressFinishesAfterNativeTextInputEnds API_AVAILABLE(tvos(
+   XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
+                  FlutterTvosPressRouteSystem);
+   XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
++  [keyboardStub stopMocking];
++}
++
++- (void)testSystemOwnedPressFinishesAfterKeyboardPresentationDrops API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++
++  id keyboardStub = StubPresentedKeyboard(viewController);
++  viewController.tvosNativeTextInputActive = YES;
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteSystem);
++  [keyboardStub stopMocking];
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteSystem);
++  XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
+ }
+ 
+ - (void)testNativeTextInputRoutesDirectionsAndSelectToSystem API_AVAILABLE(tvos(13.4)) {
+@@ -199,6 +231,7 @@ - (void)testNativeTextInputRoutesDirectionsAndSelectToSystem API_AVAILABLE(tvos(
+   FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
+                                                                                 nibName:nil
+                                                                                  bundle:nil];
++  id keyboardStub = StubPresentedKeyboard(viewController);
+   viewController.tvosNativeTextInputActive = YES;
+ 
+   XCTAssertEqual(
+@@ -212,6 +245,26 @@ - (void)testNativeTextInputRoutesDirectionsAndSelectToSystem API_AVAILABLE(tvos(
+   XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
+                  FlutterTvosPressRouteSystem);
+   XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
++  [keyboardStub stopMocking];
++}
++
++// Regression: an editing session whose keyboard never made it on screen (its
++// presentation was dropped mid-dismissal of the previous session) must not
++// black-hole remote presses — nothing native exists to consume them, so they
++// belong to the engine, where the framework can recover the session.
++- (void)testEditingSessionWithoutPresentedKeyboardRoutesPressesToEngine API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++  viewController.tvosNativeTextInputActive = YES;
++
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteEngine);
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteEngine);
++  XCTAssertEqualObjects(engine.sentKeyEventTypes,
++                        (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
+ }
+ 
+ @end

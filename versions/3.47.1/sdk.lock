@@ -1,0 +1,31 @@
+# Pinned upstream commits for Flutter 3.47.1 + its engine dependencies.
+# Read by engine.py (fetch / apply / regenerate / build). KEY=VALUE lines,
+# still bash-sourceable.
+#
+# When bumping to a new Flutter release, update ALL four refs together and
+# keep them consistent: the engine pins the dart/skia SHAs inside its DEPS.
+
+FLUTTER_VERSION=3.47.1
+
+# The Flutter monorepo (formerly flutter/engine + flutter/flutter).
+# ENGINE_REF is the `3.47.1` tag which resolves to this commit. The SDK's
+# engine.stamp for 3.47.1 is 5d531788691ec3404cac0cee66ead4007b177363; the two
+# commits between it and the tag touch no engine/ paths, so building from the
+# tag matches the shipped engine artifacts.
+ENGINE_REPO=https://github.com/flutter/flutter.git
+ENGINE_REF=3.47.1
+ENGINE_COMMIT=6655482ec06e547f90abf8ae7590466f4415978d
+
+# Dart SDK pinned at Dart 3.13.1.
+DART_REPO=https://dart.googlesource.com/sdk.git
+DART_COMMIT=852b3e3608906afbe6102573cfd4407aeedd1b78
+
+# Skia pinned to the revision the engine's DEPS resolves to for 3.47.1.
+SKIA_REPO=https://skia.googlesource.com/skia.git
+SKIA_COMMIT=8df24be66531469e576a806749a0202ae26b8d08
+
+# Perfetto (tracing, vendored inside Dart's third_party). Needs at least one
+# tvOS patch to skip fork()/setsid() calls that tvOS SDK hides. Unchanged
+# between Dart 3.12.0 and 3.13.1.
+PERFETTO_REPO=https://android.googlesource.com/platform/external/perfetto
+PERFETTO_COMMIT=13ce0c9e13b0940d2476cd0cff2301708a9a2e2b

@@ -1,0 +1,54 @@
+From b2d132ff1ec18efe8f6f2ab2a81b093383e74cc4 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 23:01:02 +0200
+Subject: [PATCH 25/53] tvos: add macos/tvos_debug_sim_unopt_arm64 builder
+ entry
+
+
+diff --git a/engine/src/flutter/ci/builders/local_engine.json b/engine/src/flutter/ci/builders/local_engine.json
+index 7e7789cd..8b588135 100644
+--- a/engine/src/flutter/ci/builders/local_engine.json
++++ b/engine/src/flutter/ci/builders/local_engine.json
+@@ -203,6 +203,42 @@
+         }
+       }
+     },
++    {
++      "cas_archive": false,
++      "drone_dimensions": [
++        "os=Mac-15.5|Mac-15.7",
++        "device_type=none"
++      ],
++      "gclient_variables": {
++        "download_android_deps": false,
++        "download_jdk": false,
++        "use_rbe": true
++      },
++      "gn": [
++        "--tvos",
++        "--tvos-simulator",
++        "--simulator-cpu=arm64",
++        "--runtime-mode",
++        "debug",
++        "--unoptimized",
++        "--no-stripped",
++        "--no-lto",
++        "--xcode-symlinks",
++        "--rbe",
++        "--no-goma"
++      ],
++      "name": "macos/tvos_debug_sim_unopt_arm64",
++      "description": "Builds an unoptimized debug mode engine that targets the arm64 tvOS simulator from a macOS host.",
++      "ninja": {
++        "config": "tvos_debug_sim_unopt_arm64",
++        "targets": []
++      },
++      "properties": {
++        "$flutter/osx_sdk": {
++          "sdk_version": "16c5032a"
++        }
++      }
++    },
+     {
+       "cas_archive": false,
+       "drone_dimensions": [

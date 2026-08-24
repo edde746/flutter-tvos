@@ -1,0 +1,163 @@
+From ca77ab670f1617888a0df8d257f2fa60a608923a Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 29 May 2026 06:18:09 +0200
+Subject: [PATCH 43/53] tvos: handle remote presses from window events
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 2e7483e3..772ddc29 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -90,6 +90,11 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ @property(nonatomic, strong) NSTimer* synthesizedRepeatTimer;
+ @property(nonatomic, strong) NSNumber* synthesizedRepeatPhysicalKey;
+ @property(nonatomic, assign) uint64_t synthesizedRepeatLogicalKey;
++- (BOOL)synthesizeRemotePressType:(UIPressType)pressType
++                         eventType:(FlutterKeyEventType)type
++                          physical:(uint64_t)physical
++                           logical:(uint64_t)logical
++              tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4));
+ - (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger,
+@@ -244,25 +249,31 @@ - (void)onFirstFrameRendered;
+   return nil;
+ }
+ 
+-static FlutterViewController* FlutterTvosFlutterViewControllerForPress(UIPress* press) {
++static FlutterViewController* FlutterTvosFlutterViewControllerForPress(UIPress* press,
++                                                                        UIWindow* window) {
+   FlutterViewController* responderController =
+       FlutterTvosFlutterViewControllerForResponder(press.responder);
+   if (responderController != nil) {
+     return responderController;
+   }
+-  return FlutterTvosFindFlutterViewController(press.window.rootViewController);
++  UIWindow* targetWindow = press.window;
++  if (targetWindow == nil) {
++    targetWindow = window;
++  }
++  return FlutterTvosFindFlutterViewController(targetWindow.rootViewController);
+ }
+ 
+-static BOOL FlutterTvosHandlePressesEvent(UIEvent* event) API_AVAILABLE(tvos(13.4)) {
++static BOOL FlutterTvosHandlePressesEvent(UIEvent* event, UIWindow* window) API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+-    if (event.type != UIEventTypePresses || ![event isKindOfClass:[UIPressesEvent class]]) {
++    if (event.type != UIEventTypePresses || ![event respondsToSelector:@selector(allPresses)]) {
+       return NO;
+     }
+ 
+     BOOL handledAny = NO;
+     BOOL hasUnhandledPress = NO;
+-    for (UIPress* press in ((UIPressesEvent*)event).allPresses) {
+-      FlutterViewController* viewController = FlutterTvosFlutterViewControllerForPress(press);
++    NSSet<UIPress*>* allPresses = ((UIPressesEvent*)event).allPresses;
++    for (UIPress* press in allPresses) {
++      FlutterViewController* viewController = FlutterTvosFlutterViewControllerForPress(press, window);
+       if (viewController == nil) {
+         hasUnhandledPress = YES;
+         continue;
+@@ -293,7 +304,30 @@ + (void)load {
+ - (void)flutterTvos_sendEvent:(UIEvent*)event {
+   BOOL handled = NO;
+   if (@available(tvOS 13.4, *)) {
+-    handled = FlutterTvosHandlePressesEvent(event);
++    handled = FlutterTvosHandlePressesEvent(event, nil);
++  }
++  if (!handled) {
++    [self flutterTvos_sendEvent:event];
++  }
++}
++@end
++
++@implementation UIWindow (FlutterTvosPressEvents)
+++ (void)load {
++  static dispatch_once_t onceToken;
++  dispatch_once(&onceToken, ^{
++    Method original = class_getInstanceMethod([UIWindow class], @selector(sendEvent:));
++    Method swizzled = class_getInstanceMethod([UIWindow class], @selector(flutterTvos_sendEvent:));
++    if (original != nil && swizzled != nil) {
++      method_exchangeImplementations(original, swizzled);
++    }
++  });
++}
++
++- (void)flutterTvos_sendEvent:(UIEvent*)event {
++  BOOL handled = NO;
++  if (@available(tvOS 13.4, *)) {
++    handled = FlutterTvosHandlePressesEvent(event, self);
+   }
+   if (!handled) {
+     [self flutterTvos_sendEvent:event];
+@@ -1128,13 +1162,36 @@ - (BOOL)maybeSynthesizeForPress:(UIPress*)press
+     if (![self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
+       return NO;
+     }
++    return [self synthesizeRemotePressType:press.type
++                                 eventType:type
++                                  physical:physical
++                                   logical:logical
++                      tapIfMissingKeyDown:NO];
++  }
++  return NO;
++}
++
++- (BOOL)synthesizeRemotePressType:(UIPressType)pressType
++                         eventType:(FlutterKeyEventType)type
++                          physical:(uint64_t)physical
++                           logical:(uint64_t)logical
++              tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4)) {
++  if (@available(tvOS 13.4, *)) {
++    NSNumber* key = @(physical);
++    BOOL hasKeyDown = [self.synthesizedPressedKeys containsObject:key];
+     if (type == kFlutterKeyEventTypeUp) {
+       if (self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
+         [self stopSynthesizedRepeat];
+       }
++      if (!hasKeyDown && tapIfMissingKeyDown) {
++        [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
++                                   physical:physical
++                                    logical:logical];
++      }
+     }
++
+     BOOL sent = [self sendSynthesizedKeyEventOfType:type physical:physical logical:logical];
+-    if (sent && type == kFlutterKeyEventTypeDown && [self isRepeatablePressType:press.type]) {
++    if (sent && type == kFlutterKeyEventTypeDown && [self isRepeatablePressType:pressType]) {
+       [self startSynthesizedRepeatWithPhysical:physical logical:logical];
+     }
+     return YES;
+@@ -1149,19 +1206,26 @@ - (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
+     }
+     uint64_t physical = 0;
+     uint64_t logical = 0;
+-    if (![self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
++    if (![self physicalLogicalForPressType:press.type physical:&physical logical:&logical]) {
+       return NO;
+     }
+ 
+     switch (press.phase) {
+       case UIPressPhaseBegan:
+-        return [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeDown];
+-      case UIPressPhaseEnded:
+-      case UIPressPhaseCancelled:
+-        return [self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp];
+       case UIPressPhaseChanged:
+       case UIPressPhaseStationary:
+-        return YES;
++        return [self synthesizeRemotePressType:press.type
++                                     eventType:kFlutterKeyEventTypeDown
++                                      physical:physical
++                                       logical:logical
++                          tapIfMissingKeyDown:NO];
++      case UIPressPhaseEnded:
++      case UIPressPhaseCancelled:
++        return [self synthesizeRemotePressType:press.type
++                                     eventType:kFlutterKeyEventTypeUp
++                                      physical:physical
++                                       logical:logical
++                          tapIfMissingKeyDown:YES];
+     }
+   }
+   return NO;

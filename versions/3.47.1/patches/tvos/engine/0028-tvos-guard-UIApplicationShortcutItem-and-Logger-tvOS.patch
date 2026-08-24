@@ -1,0 +1,53 @@
+From 6973b3ffa6b646f05bb84a07bcee081f27413915 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 23:06:00 +0200
+Subject: [PATCH 28/53] tvos: guard UIApplicationShortcutItem and Logger tvOS
+ branch
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift b/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift
+index 089b2068..469d8a4b 100644
+--- a/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift
++++ b/engine/src/flutter/shell/platform/darwin/common/framework/Source/Logger.swift
+@@ -49,13 +49,15 @@ import Foundation
+   }
+ 
+   public override convenience init() {
+-    #if os(iOS)
+-      // On iOS, the user has no access to stdout.
++    #if os(iOS) || os(tvOS)
++      // On iOS/tvOS, the user has no access to stdout.
+       // Output can be read from the log by the user or the `flutter` tool.
+       self.init(outputWriter: SyslogOutputWriter(), logLevel: .info)
+     #elseif os(macOS)
+       // On macOS, both the user and the tool read from stdout.
+       self.init(outputWriter: StdoutOutputWriter(), logLevel: .info)
++    #else
++      self.init(outputWriter: StdoutOutputWriter(), logLevel: .info)
+     #endif
+   }
+ 
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h
+index 72f1568a..b531cfad 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterSceneLifeCycle.h
+@@ -94,7 +94,8 @@ API_AVAILABLE(ios(13.0))
+  */
+ - (BOOL)windowScene:(UIWindowScene*)windowScene
+     performActionForShortcutItem:(UIApplicationShortcutItem*)shortcutItem
+-               completionHandler:(void (^)(BOOL succeeded))completionHandler;
++               completionHandler:(void (^)(BOOL succeeded))completionHandler
++    API_UNAVAILABLE(tvos);
+ 
+ @end
+ 
+@@ -196,7 +197,8 @@ API_AVAILABLE(ios(13.0))
+  */
+ - (void)windowScene:(UIWindowScene*)windowScene
+     performActionForShortcutItem:(UIApplicationShortcutItem*)shortcutItem
+-               completionHandler:(void (^)(BOOL succeeded))completionHandler;
++               completionHandler:(void (^)(BOOL succeeded))completionHandler
++    API_UNAVAILABLE(tvos);
+ 
+ @end
+ 

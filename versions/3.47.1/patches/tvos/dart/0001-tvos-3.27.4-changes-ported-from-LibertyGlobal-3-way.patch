@@ -1,0 +1,126 @@
+From 688101b9832fd58da59aaf4f21b0563a4dca520a Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:35:56 +0200
+Subject: [PATCH 1/3] tvos 3.27.4 changes (ported from LibertyGlobal, 3-way)
+
+
+diff --git a/pkg/analysis_server/lib/src/server/dev_server.dart b/pkg/analysis_server/lib/src/server/dev_server.dart
+index 9ad058026..fbe5fde9c 100644
+--- a/pkg/analysis_server/lib/src/server/dev_server.dart
++++ b/pkg/analysis_server/lib/src/server/dev_server.dart
+@@ -58,7 +58,7 @@ class DevAnalysisServer {
+             (params['analysis'] as Map<String, Object>)['isAnalyzing'] as bool;
+         if (isAnalyzing) {
+           beganAnalysis = true;
+-        } else if (beganAnalysis) {
++        } else if (beganAnalysis && !whenComplete.isCompleted) {
+           beganAnalysis = false;
+           timer.stop();
+           var seconds = timer.elapsedMilliseconds / 1000.0;
+diff --git a/runtime/bin/process_macos.cc b/runtime/bin/process_macos.cc
+index 8aebf479c..7864788a7 100644
+--- a/runtime/bin/process_macos.cc
++++ b/runtime/bin/process_macos.cc
+@@ -166,9 +166,11 @@ class ExitCodeHandler {
+     running_ = false;
+ 
+     // Fork to wake up waitpid.
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     if (TEMP_FAILURE_RETRY(fork()) == 0) {
+       _Exit(0);
+     }
++#endif    
+ 
+     monitor_->Notify();
+ 
+@@ -299,6 +301,7 @@ class ProcessStarter {
+   }
+ 
+   int Start() {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     // Create pipes required.
+     int err = CreatePipes();
+     if (err != 0) {
+@@ -388,6 +391,7 @@ class ProcessStarter {
+     ASSERT(exec_control_[1] == -1);
+ 
+     *id_ = pid;
++#endif
+     return 0;
+   }
+ 
+@@ -446,6 +450,7 @@ class ProcessStarter {
+   }
+ 
+   void ExecProcess() {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     if (mode_ == kNormal) {
+       if (TEMP_FAILURE_RETRY(dup2(write_out_[0], STDIN_FILENO)) == -1) {
+         ReportChildError();
+@@ -482,9 +487,11 @@ class ProcessStarter {
+ 
+     execvp(path_, const_cast<char* const*>(program_arguments_));
+     ReportChildError();
++#endif
+   }
+ 
+   void ExecDetachedProcess() {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+     if (mode_ == kDetached) {
+       ASSERT(write_out_[0] == -1);
+       ASSERT(write_out_[1] == -1);
+@@ -547,6 +554,7 @@ class ProcessStarter {
+       // to prevent deadlocks.
+       _Exit(0);
+     }
++#endif
+   }
+ 
+   int RegisterProcess(pid_t pid) {
+diff --git a/runtime/platform/globals.h b/runtime/platform/globals.h
+index 66c3f273f..487f9065e 100644
+--- a/runtime/platform/globals.h
++++ b/runtime/platform/globals.h
+@@ -120,7 +120,7 @@
+ // Define the flavor of Mac OS we are running on.
+ #include <TargetConditionals.h>
+ #define DART_HOST_OS_MACOS 1
+-#if TARGET_OS_IPHONE
++#if TARGET_OS_IPHONE || (defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #define DART_HOST_OS_IOS 1
+ #endif
+ #if TARGET_OS_WATCH
+diff --git a/runtime/vm/compiler/ffi/abi.cc b/runtime/vm/compiler/ffi/abi.cc
+index 66fa5a8d5..7f5ded982 100644
+--- a/runtime/vm/compiler/ffi/abi.cc
++++ b/runtime/vm/compiler/ffi/abi.cc
+@@ -54,7 +54,7 @@ static_assert(offsetof(AbiAlignmentUint64, i) == 8,
+ #elif defined(DART_TARGET_OS_LINUX)
+ #define DART_TARGET_OS_NAME Linux
+ #elif defined(DART_TARGET_OS_MACOS)
+-#if DART_TARGET_OS_MACOS_IOS
++#if defined(DART_TARGET_OS_MACOS_IOS) || (defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #define DART_TARGET_OS_NAME IOS
+ #else
+ #define DART_TARGET_OS_NAME MacOS
+diff --git a/runtime/vm/cpu_arm.cc b/runtime/vm/cpu_arm.cc
+index d40147b2e..a94d9c250 100644
+--- a/runtime/vm/cpu_arm.cc
++++ b/runtime/vm/cpu_arm.cc
+@@ -11,7 +11,7 @@
+ #include "vm/cpuinfo.h"
+ 
+ #if !defined(TARGET_HOST_MISMATCH)
+-#if defined(DART_HOST_OS_MACOS) || defined(DART_HOST_OS_IOS)
++#if defined(DART_TARGET_OS_ANDROID) || defined(DART_TARGET_OS_MACOS_IOS) || (defined(TARGET_OS_TV) && TARGET_OS_TV)
+ #include <libkern/OSCacheControl.h>
+ #elif defined(DART_HOST_OS_WINDOWS)
+ #include <processthreadsapi.h>
+@@ -108,6 +108,7 @@ bool HostCPUFeatures::integer_division_supported_ = false;
+ bool HostCPUFeatures::neon_supported_ = false;
+ bool HostCPUFeatures::hardfp_supported_ = false;
+ const char* HostCPUFeatures::hardware_ = nullptr;
++intptr_t HostCPUFeatures::store_pc_read_offset_ = 8;
+ #if defined(DEBUG)
+ bool HostCPUFeatures::initialized_ = false;
+ #endif

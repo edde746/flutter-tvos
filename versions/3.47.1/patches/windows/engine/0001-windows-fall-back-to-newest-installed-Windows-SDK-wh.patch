@@ -1,0 +1,59 @@
+From e77a079ae341c2f0252fa4759260190a70c38c83 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Sat, 13 Jun 2026 02:12:04 +0200
+Subject: [PATCH 1/2] windows: fall back to newest installed Windows SDK when
+ pinned SDK is missing
+
+Local DEPOT_TOOLS_WIN_TOOLCHAIN=0 builds hard-require the CI-pinned SDK
+(10.0.22621.0) even though any newer installed SDK provides a superset of
+the needed headers/libs. Resolve the pinned version if present, else the
+newest installed, so engine builds work on machines with only a newer SDK.
+
+diff --git a/engine/src/build/toolchain/win/setup_toolchain.py b/engine/src/build/toolchain/win/setup_toolchain.py
+index 521c2439..84271670 100644
+--- a/engine/src/build/toolchain/win/setup_toolchain.py
++++ b/engine/src/build/toolchain/win/setup_toolchain.py
+@@ -25,6 +25,34 @@ SCRIPT_DIR = os.path.dirname(__file__)
+ SDK_VERSION = '10.0.22621.0'
+ 
+ 
++def _ResolveSdkVersion():
++  """Returns the pinned SDK version if installed, else the newest installed.
++
++  Local (DEPOT_TOOLS_WIN_TOOLCHAIN=0) builds shouldn't hard-require the exact
++  CI-pinned SDK; any newer installed Windows 10/11 SDK provides a superset of
++  the headers/libs the engine needs.
++  """
++  include_root = os.path.join(
++      os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'),
++      'Windows Kits', '10', 'Include')
++  if os.path.isdir(os.path.join(include_root, SDK_VERSION)):
++    return SDK_VERSION
++  try:
++    candidates = sorted(
++        (d for d in os.listdir(include_root)
++         if os.path.isdir(os.path.join(include_root, d, 'um'))),
++        key=lambda v: [int(x) for x in v.split('.')])
++  except (OSError, ValueError):
++    return SDK_VERSION
++  if candidates:
++    print(
++        'setup_toolchain.py: pinned Windows SDK %s not installed; using %s' %
++        (SDK_VERSION, candidates[-1]),
++        file=sys.stderr)
++    return candidates[-1]
++  return SDK_VERSION
++
++
+ def _ExtractImportantEnvironment(output_of_set):
+   """Extracts environment variables required for the toolchain to run from
+   a textual dump output by the cmd.exe 'set' command."""
+@@ -185,7 +213,7 @@ def _LoadToolchainEnv(cpu, toolchain_root, sdk_dir, target_store):
+     # Explicitly specifying the SDK version to build with to avoid accidentally
+     # building with a new and untested SDK. This should stay in sync with the
+     # packaged toolchain in build/vs_toolchain.py.
+-    args.append(SDK_VERSION)
++    args.append(_ResolveSdkVersion())
+     variables = _LoadEnvFromBat(args)
+   return _ExtractImportantEnvironment(variables)
+ 

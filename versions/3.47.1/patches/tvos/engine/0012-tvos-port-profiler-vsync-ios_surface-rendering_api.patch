@@ -1,0 +1,160 @@
+From 8e503ae02c8a09a370ab89303d47cd9ea75b6672 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:00:50 +0200
+Subject: [PATCH 12/53] tvos: port profiler, vsync, ios_surface, rendering_api
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/VSyncClient.swift b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/VSyncClient.swift
+index 281be1ca..8e2321eb 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/VSyncClient.swift
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/VSyncClient.swift
+@@ -91,17 +91,25 @@ public class VSyncClient: NSObject {
+     guard let link = displayLink else { return }
+ 
+     let maxFrameRate = max(requestedRate, VSyncClient.defaultRefreshRate)
+-    let minFrameRate = max(maxFrameRate / 2.0, VSyncClient.defaultRefreshRate)
+-
+-    if #available(iOS 15.0, *) {
+-      link.preferredFrameRateRange = CAFrameRateRange(
+-        minimum: Float(minFrameRate),
+-        maximum: Float(maxFrameRate),
+-        preferred: Float(maxFrameRate)
+-      )
+-    } else {
++
++    #if os(tvOS)
++      // tvos: preferredFrameRateRange needs tvOS 15 and the deployment target
++      // is lower; the port always uses preferredFramesPerSecond on TV
++      // (mirrors the pre-Swift ObjC patch).
+       link.preferredFramesPerSecond = Int(maxFrameRate)
+-    }
++    #else
++      let minFrameRate = max(maxFrameRate / 2.0, VSyncClient.defaultRefreshRate)
++
++      if #available(iOS 15.0, *) {
++        link.preferredFrameRateRange = CAFrameRateRange(
++          minimum: Float(minFrameRate),
++          maximum: Float(maxFrameRate),
++          preferred: Float(maxFrameRate)
++        )
++      } else {
++        link.preferredFramesPerSecond = Int(maxFrameRate)
++      }
++    #endif
+   }
+ 
+   /// Resumes the display link to begin receiving vsync callback ticks.
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm
+index 0a4ba99a..16fb3db7 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm
+@@ -58,6 +58,7 @@
+ #if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG || \
+     FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_PROFILE
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ std::optional<GpuUsageInfo> FindGpuUsageInfo(io_iterator_t iterator) {
+   for (fml::CFRef<io_registry_entry_t> reg_entry(IOIteratorNext(iterator)); reg_entry.Get();
+        reg_entry.Reset(IOIteratorNext(iterator))) {
+@@ -77,18 +78,22 @@
+   }
+   return std::nullopt;
+ }
++#endif
+ 
+ [[maybe_unused]] std::optional<GpuUsageInfo> FindSimulatorGpuUsageInfo() {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   io_iterator_t io_iterator;
+   if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceNameMatching("IntelAccelerator"),
+                                    &io_iterator) == kIOReturnSuccess) {
+     fml::CFRef<io_iterator_t> iterator(io_iterator);
+     return FindGpuUsageInfo(iterator.Get());
+   }
++#endif
+   return std::nullopt;
+ }
+ 
+ [[maybe_unused]] std::optional<GpuUsageInfo> FindDeviceGpuUsageInfo() {
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+   io_iterator_t io_iterator;
+   if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceNameMatching("sgx"),
+                                    &io_iterator) == kIOReturnSuccess) {
+@@ -106,6 +111,7 @@
+       }
+     }
+   }
++#endif
+   return std::nullopt;
+ }
+ 
+@@ -120,6 +126,8 @@
+   return FindSimulatorGpuUsageInfo();
+ #elif TARGET_OS_IOS
+   return FindDeviceGpuUsageInfo();
++#elif TARGET_OS_TV
++  return std::nullopt;
+ #endif  // TARGET_IPHONE_SIMULATOR
+ }
+ }  // namespace
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/vsync_waiter_ios.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/vsync_waiter_ios.mm
+index c0922a15..5d590531 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/vsync_waiter_ios.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/vsync_waiter_ios.mm
+@@ -75,3 +75,4 @@
+ }
+ 
+ }  // namespace flutter
++
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/ios_surface.mm b/engine/src/flutter/shell/platform/darwin/ios/ios_surface.mm
+index b03b9b46..6c385e28 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/ios_surface.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/ios_surface.mm
+@@ -21,6 +21,8 @@
+   FML_DCHECK(context);
+ 
+   if (@available(iOS METAL_IOS_VERSION_BASELINE, *)) {
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wunguarded-availability-new"
+     if ([layer isKindOfClass:[CAMetalLayer class]]) {
+       switch (context->GetBackend()) {
+         case IOSRenderingBackend::kSkia:
+@@ -33,6 +35,7 @@
+           );
+       }
+     }
++#pragma GCC diagnostic pop
+   }
+   return std::make_unique<IOSSurfaceNoop>(std::move(context));
+ }
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm b/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
+index 5c77f93c..b2b7e65a 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
+@@ -21,10 +21,14 @@
+ 
+ bool ShouldUseMetalRenderer() {
+   bool ios_version_supports_metal = false;
++#ifdef TARGET_OS_TV
++  ios_version_supports_metal = true;  // min tvos GPU Family is same as iOS GPU family 2
++#else
+   if (@available(iOS METAL_IOS_VERSION_BASELINE, *)) {
+     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+     ios_version_supports_metal = [device supportsFeatureSet:MTLFeatureSet_iOS_GPUFamily1_v3];
+   }
++#endif
+   return ios_version_supports_metal;
+ }
+ 
+@@ -63,9 +67,12 @@ Class GetCoreAnimationLayerClassForRenderingAPI(IOSRenderingAPI rendering_api) {
+     case IOSRenderingAPI::kMetal:
+       if (@available(iOS METAL_IOS_VERSION_BASELINE, *)) {
+         if ([FlutterMetalLayer enabled]) {
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wunguarded-availability-new"
+           return [FlutterMetalLayer class];
+         } else {
+           return [CAMetalLayer class];
++#pragma GCC diagnostic pop
+         }
+       }
+       FML_CHECK(false) << "Metal availability should already have been checked";

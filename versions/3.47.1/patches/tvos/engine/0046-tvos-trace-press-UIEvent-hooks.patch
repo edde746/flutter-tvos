@@ -1,0 +1,250 @@
+From 6af16af7bc1f0b8fdc6a31eaf70c77222f699a67 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 29 May 2026 07:09:52 +0200
+Subject: [PATCH 46/53] tvos: trace press UIEvent hooks
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 387773ad..61465d81 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -95,7 +95,7 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+                           physical:(uint64_t)physical
+                            logical:(uint64_t)logical
+               tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4));
+-- (BOOL)tvosHandleWindowPressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
++- (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger,
+                                      UIScrollViewDelegate,
+@@ -201,20 +201,35 @@ - (void)onFirstFrameRendered;
+ @end
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++static FlutterViewController* FlutterTvosFlutterViewControllerForResponder(UIResponder* responder) {
++  UIResponder* current = responder;
++  while (current != nil) {
++    if ([current isKindOfClass:[FlutterViewController class]]) {
++      return (FlutterViewController*)current;
++    }
++    current = current.nextResponder;
++  }
++  return nil;
++}
++
+ static FlutterViewController* FlutterTvosFindFlutterViewController(UIViewController* viewController) {
+   if (viewController == nil) {
+     return nil;
+   }
+ 
+-  UIViewController* presentedViewController = viewController.presentedViewController;
+-  if (presentedViewController != nil) {
+-    return FlutterTvosFindFlutterViewController(presentedViewController);
+-  }
+-
+   if ([viewController isKindOfClass:[FlutterViewController class]]) {
+     return (FlutterViewController*)viewController;
+   }
+ 
++  UIViewController* presentedViewController = viewController.presentedViewController;
++  if (presentedViewController != nil) {
++    FlutterViewController* flutterViewController =
++        FlutterTvosFindFlutterViewController(presentedViewController);
++    if (flutterViewController != nil) {
++      return flutterViewController;
++    }
++  }
++
+   if ([viewController isKindOfClass:[UINavigationController class]]) {
+     UINavigationController* navigationController = (UINavigationController*)viewController;
+     FlutterViewController* flutterViewController =
+@@ -244,6 +259,126 @@ - (void)onFirstFrameRendered;
+   return nil;
+ }
+ 
++static FlutterViewController* FlutterTvosFlutterViewControllerForWindow(UIWindow* window) {
++  return FlutterTvosFindFlutterViewController(window.rootViewController);
++}
++
++static FlutterViewController* FlutterTvosFlutterViewControllerForApplication(UIApplication* application) {
++  for (UIScene* scene in application.connectedScenes) {
++    if (![scene isKindOfClass:[UIWindowScene class]]) {
++      continue;
++    }
++    for (UIWindow* window in ((UIWindowScene*)scene).windows) {
++      FlutterViewController* flutterViewController =
++          FlutterTvosFlutterViewControllerForWindow(window);
++      if (flutterViewController != nil) {
++        return flutterViewController;
++      }
++    }
++  }
++  return nil;
++}
++
++static FlutterViewController* FlutterTvosFlutterViewControllerForPress(UIPress* press,
++                                                                        UIWindow* window,
++                                                                        UIApplication* application) {
++  FlutterViewController* responderViewController =
++      FlutterTvosFlutterViewControllerForResponder(press.responder);
++  if (responderViewController != nil) {
++    return responderViewController;
++  }
++
++  UIWindow* targetWindow = press.window;
++  if (targetWindow == nil) {
++    targetWindow = window;
++  }
++
++  FlutterViewController* windowViewController =
++      FlutterTvosFlutterViewControllerForWindow(targetWindow);
++  if (windowViewController != nil) {
++    return windowViewController;
++  }
++
++  return FlutterTvosFlutterViewControllerForApplication(application);
++}
++
++static BOOL FlutterTvosHandlePressesEvent(UIEvent* event,
++                                          UIWindow* window,
++                                          UIApplication* application,
++                                          NSString* source) API_AVAILABLE(tvos(13.4)) {
++  if (@available(tvOS 13.4, *)) {
++    if (event.type != UIEventTypePresses || ![event respondsToSelector:@selector(allPresses)]) {
++      return NO;
++    }
++
++    NSSet<UIPress*>* allPresses = ((UIPressesEvent*)event).allPresses;
++    os_log(OS_LOG_DEFAULT,
++           "Flutter tvOS press hook source=%{public}@ eventClass=%{public}@ presses=%{public}lu window=%{public}@ root=%{public}@",
++           source,
++           NSStringFromClass([event class]),
++           (unsigned long)allPresses.count,
++           window,
++           window.rootViewController);
++
++    BOOL handledAny = NO;
++    BOOL hasUnhandledPress = NO;
++    for (UIPress* press in allPresses) {
++      FlutterViewController* flutterViewController =
++          FlutterTvosFlutterViewControllerForPress(press, window, application);
++      BOOL handled = NO;
++      if (flutterViewController != nil) {
++        handled = [flutterViewController tvosHandlePressFromUIEvent:press];
++      }
++      os_log(OS_LOG_DEFAULT,
++             "Flutter tvOS press source=%{public}@ type=%{public}ld phase=%{public}ld responder=%{public}@ pressWindow=%{public}@ flutterVC=%{public}@ handled=%{public}d",
++             source,
++             (long)press.type,
++             (long)press.phase,
++             press.responder,
++             press.window,
++             flutterViewController,
++             handled);
++      if (handled) {
++        handledAny = YES;
++      } else {
++        hasUnhandledPress = YES;
++      }
++    }
++    return handledAny && !hasUnhandledPress;
++  }
++  return NO;
++}
++
++@interface UIApplication (FlutterTvosPressEvents)
++@end
++
++@implementation UIApplication (FlutterTvosPressEvents)
++
+++ (void)load {
++  static dispatch_once_t onceToken;
++  dispatch_once(&onceToken, ^{
++    Method originalMethod = class_getInstanceMethod([UIApplication class], @selector(sendEvent:));
++    Method replacementMethod =
++        class_getInstanceMethod([UIApplication class], @selector(flutterTvos_sendEvent:));
++    if (originalMethod == nil || replacementMethod == nil) {
++      return;
++    }
++    method_exchangeImplementations(originalMethod, replacementMethod);
++  });
++}
++
++- (void)flutterTvos_sendEvent:(UIEvent*)event {
++  BOOL handled = NO;
++  if (@available(tvOS 13.4, *)) {
++    handled = FlutterTvosHandlePressesEvent(event, nil, self, @"UIApplication");
++  }
++  if (!handled) {
++    [self flutterTvos_sendEvent:event];
++  }
++}
++
++@end
++
+ @interface UIWindow (FlutterTvosPressEvents)
+ @end
+ 
+@@ -262,27 +397,13 @@ + (void)load {
+ }
+ 
+ - (void)flutterTvos_sendEvent:(UIEvent*)event {
++  BOOL handled = NO;
+   if (@available(tvOS 13.4, *)) {
+-    if (event.type == UIEventTypePresses && [event respondsToSelector:@selector(allPresses)]) {
+-      FlutterViewController* flutterViewController =
+-          FlutterTvosFindFlutterViewController(self.rootViewController);
+-      NSSet<UIPress*>* allPresses = ((UIPressesEvent*)event).allPresses;
+-      BOOL handledPress = NO;
+-      BOOL unhandledPress = NO;
+-      for (UIPress* press in allPresses) {
+-        if ([flutterViewController tvosHandleWindowPressFromUIEvent:press]) {
+-          handledPress = YES;
+-        } else {
+-          unhandledPress = YES;
+-        }
+-      }
+-      if (handledPress && !unhandledPress) {
+-        return;
+-      }
+-    }
++    handled = FlutterTvosHandlePressesEvent(event, self, nil, @"UIWindow");
++  }
++  if (!handled) {
++    [self flutterTvos_sendEvent:event];
+   }
+-
+-  [self flutterTvos_sendEvent:event];
+ }
+ 
+ @end
+@@ -1151,7 +1272,7 @@ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+   return NO;
+ }
+ 
+-- (BOOL)tvosHandleWindowPressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
++- (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+     if ([self shouldPassMenuPressToSystem:press]) {
+       return NO;
+@@ -1165,6 +1286,8 @@ - (BOOL)tvosHandleWindowPressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4
+ 
+     switch (press.phase) {
+       case UIPressPhaseBegan:
++      case UIPressPhaseChanged:
++      case UIPressPhaseStationary:
+         return [self synthesizeRemotePressType:press.type
+                                      eventType:kFlutterKeyEventTypeDown
+                                       physical:physical
+@@ -1176,10 +1299,7 @@ - (BOOL)tvosHandleWindowPressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4
+                                      eventType:kFlutterKeyEventTypeUp
+                                       physical:physical
+                                        logical:logical
+-                          tapIfMissingKeyDown:YES];
+-      case UIPressPhaseChanged:
+-      case UIPressPhaseStationary:
+-        return YES;
++                           tapIfMissingKeyDown:YES];
+     }
+   }
+   return NO;

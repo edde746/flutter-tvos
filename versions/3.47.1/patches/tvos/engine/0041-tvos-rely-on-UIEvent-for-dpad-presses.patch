@@ -1,0 +1,253 @@
+From c49b1a6832a65a64bbfc1c848ac743050b08d91d Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 29 May 2026 05:27:30 +0200
+Subject: [PATCH 41/53] tvos: rely on UIEvent for dpad presses
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index f755f59a..745fffce 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -78,7 +78,6 @@ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegat
+ @property(nonatomic, strong) FlutterBasicMessageChannel* keyEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* gamepadTouchEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* tvosSystemNavigationChannel;
+-@property(nonatomic, strong) UILongPressGestureRecognizer* menuPressGestureRecognizer;
+ @property(nonatomic, assign) BOOL menuPressPassthroughEnabled;
+ // Apple only populates UIPress.key for physical keyboards, so Siri Remote button
+ // presses arrive at handlePressEvent: with key == nil and never reach
+@@ -796,8 +795,8 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ 
+ // Dispatches a FlutterKeyEvent through the engine's embedder key-data channel,
+ // which lands on Flutter's HardwareKeyboard.instance. Dedupes against
+-// |synthesizedPressedKeys| so concurrent UIKit press and GameController paths
+-// for the same logical key emit only one Down/Up pair.
++// |synthesizedPressedKeys| so duplicate UIKit press lifecycle callbacks for the
++// same logical key emit only one Down/Up pair.
+ - (BOOL)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+                              physical:(uint64_t)physical
+                               logical:(uint64_t)logical {
+@@ -927,7 +926,6 @@ - (void)setMenuPressPassthroughEnabled:(BOOL)enabled {
+     return;
+   }
+   _menuPressPassthroughEnabled = enabled;
+-  self.menuPressGestureRecognizer.enabled = !enabled;
+   if (enabled) {
+     [self releaseAllSynthesizedPresses];
+   }
+@@ -1016,14 +1014,6 @@ - (BOOL)maybeSynthesizeForPress:(UIPress*)press
+       return NO;
+     }
+ 
+-    if (press.type == UIPressTypeSelect) {
+-      // Select long-press delivery is more reliable through
+-      // UIPressGestureRecognizer. Consume the UIKit press lifecycle so it
+-      // cannot fall through as raw Enter, but let handleCenterTap own the
+-      // down/up events that widgets use for long-press timers.
+-      return YES;
+-    }
+-
+     uint64_t physical = 0;
+     uint64_t logical = 0;
+     if (![self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
+@@ -1043,58 +1033,6 @@ - (BOOL)maybeSynthesizeForPress:(UIPress*)press
+   return NO;
+ }
+ 
+-- (void)sendSynthesizedPressType:(UIPressType)pressType pressed:(BOOL)pressed {
+-  if (@available(tvOS 13.4, *)) {
+-    uint64_t physical = 0;
+-    uint64_t logical = 0;
+-    if (![self physicalLogicalForPressType:pressType physical:&physical logical:&logical]) {
+-      return;
+-    }
+-    if (!pressed && self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
+-      [self stopSynthesizedRepeat];
+-    }
+-    BOOL sent = [self sendSynthesizedKeyEventOfType:pressed ? kFlutterKeyEventTypeDown : kFlutterKeyEventTypeUp
+-                                          physical:physical
+-                                           logical:logical];
+-    if (sent && pressed && [self isRepeatablePressType:pressType]) {
+-      [self startSynthesizedRepeatWithPhysical:physical logical:logical];
+-    }
+-  }
+-}
+-
+-- (void)setupGameControllerButton:(GCControllerButtonInput*)button pressType:(UIPressType)pressType {
+-  if (button == nil) {
+-    return;
+-  }
+-
+-  __weak FlutterViewController* weakSelf = self;
+-  button.pressedChangedHandler = ^(GCControllerButtonInput* _Nonnull button, float value, BOOL pressed) {
+-    FlutterViewController* strongSelf = weakSelf;
+-    if (!strongSelf) {
+-      return;
+-    }
+-    [strongSelf sendSynthesizedPressType:pressType pressed:pressed];
+-  };
+-}
+-
+-- (void)setupDirectionalGamepadFallbacks:(GCMicroGamepad*)gamepad {
+-  // The 2021 2nd-generation Siri Remote exposes physical outer-ring clicks
+-  // as a dedicated digital cardinal dpad. This avoids treating touch-surface
+-  // swipes or lift drift as button clicks.
+-#pragma clang diagnostic push
+-#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+-  if (GCInputDirectionalCardinalDpad != nil) {
+-    GCControllerDirectionPad* cardinalDpad = gamepad.dpads[GCInputDirectionalCardinalDpad];
+-    if (cardinalDpad != nil) {
+-      [self setupGameControllerButton:cardinalDpad.up pressType:UIPressTypeUpArrow];
+-      [self setupGameControllerButton:cardinalDpad.down pressType:UIPressTypeDownArrow];
+-      [self setupGameControllerButton:cardinalDpad.left pressType:UIPressTypeLeftArrow];
+-      [self setupGameControllerButton:cardinalDpad.right pressType:UIPressTypeRightArrow];
+-    }
+-  }
+-#pragma clang diagnostic pop
+-}
+-
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -1113,67 +1051,10 @@ - (void)handleTap:(UITapGestureRecognizer*)recognizer
+     [self sendTap:key withType:keyMapType ofType:@"keyup"];
+   }
+ }
+-- (void)handleAtomicTap:(UITapGestureRecognizer*)recognizer
+-              withType:(NSString*)keyMapType
+-               keyType:(int)key {
+-  if (recognizer.state == UIGestureRecognizerStateBegan) {
+-    [self sendTap:key withType:keyMapType ofType:@"keydown"];
+-    [self sendTap:key withType:keyMapType ofType:@"keyup"];
+-  }
+-}
+-- (void)handleLeftTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleAtomicTap:recognizer withType:@"android" keyType:0x15];
+-}
+-- (void)handleRightTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleAtomicTap:recognizer withType:@"android" keyType:0x16];
+-}
+-- (void)handleUpTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleAtomicTap:recognizer withType:@"android" keyType:0x13];
+-}
+-- (void)handleDownTap:(UITapGestureRecognizer*)recognizer {
+-  [self handleAtomicTap:recognizer withType:@"android" keyType:0x14];
+-}
+-- (void)handleCenterTap:(UITapGestureRecognizer*)recognizer {
+-  // Forward center/select lifecycle over the legacy gamepad-touch channel. On
+-  // physical tvOS release builds this is the reliable path; Plezy turns click_s
+-  // and click_e into a real KeyDown/KeyUp pair for long-press timers.
+-  if (recognizer.state == UIGestureRecognizerStateBegan) {
+-    [self sendGamepadTouchesWithType:@"click_s" x:0 y:0];
+-  } else if (recognizer.state == UIGestureRecognizerStateEnded) {
+-    [self sendGamepadTouchesWithType:@"click_e" x:0 y:0];
+-  }
+-}
+ - (void)handlePlayPauseTap:(UITapGestureRecognizer*)recognizer {
+   // No such key on macOS so we fake android
+   [self handleTap:recognizer withType:@"android" keyType:0x55];
+ }
+-- (void)handleMenuTap:(UITapGestureRecognizer*)recognizer {
+-  if (self.menuPressPassthroughEnabled) {
+-    return;
+-  }
+-
+-  // Back/Menu is also sent atomically on Began. Waiting for Ended on tvOS can
+-  // delay release across route changes, which used to replay stale back input.
+-  //
+-  // Menu's gesture lifecycle on tvOS is unreliable: tvOS reserves
+-  // long-press-Menu for "go home," and the OS frequently delays or
+-  // omits the recognizer's StateEnded/Cancelled transition for the
+-  // *release* of a Menu tap until another press arrives to kick it
+-  // (observed gap: >8s between Began and Ended). Waiting on Ended/
+-  // Cancelled to emit keyup leaves the previous keydown's physical key
+-  // pinned in synthesizedPressedKeys, which then dedup-swallows the
+-  // following press's keydown.
+-  //
+-  // Since Apple owns Menu's long-press semantic anyway and apps cannot
+-  // distinguish hold from tap on Menu, treat every Menu recognition as
+-  // an atomic tap: emit keydown + keyup together on StateBegan and stop
+-  // tracking lifecycle from there.
+-  if (recognizer.state == UIGestureRecognizerStateBegan) {
+-    [self releaseAllSynthesizedPresses];
+-    [self sendTap:0x04 withType:@"android" ofType:@"keydown"];
+-    [self sendTap:0x04 withType:@"android" ofType:@"keyup"];
+-  }
+-}
+ - (void)handlePageUpTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(14.3)) {
+   [self handleTap:recognizer withType:@"android" keyType:0xA6];
+ }
+@@ -1203,13 +1084,8 @@ - (void)setupTouchesWithGamepad:(GCMicroGamepad*)gamepad {
+   gamepad.reportsAbsoluteDpadValues = true;
+   __weak FlutterViewController* weakSelf = self;
+   // Forward raw touch-surface position to the gamepadtouchevent channel so
+-  // app-side swipe detection (e.g. Plezy's AppleTvRemoteTouchService) can
+-  // resolve a swipe gesture in Dart. We deliberately do NOT synthesize arrow
+-  // keys from analog dpad values here — those would fire spurious "opposite
+-  // direction" events as the finger naturally pivots through the touch
+-  // surface during a lift. Directional clicks come from the UIKit press path
+-  // (pressesBegan → maybeSynthesizeForPress) with a GameController cardinal
+-  // dpad fallback for the 2021 Siri Remote's physical outer ring.
++  // app-side swipe detection can resolve a swipe gesture in Dart. Directional
++  // click buttons are handled only by the UIKit press UIEvent path below.
+   gamepad.dpad.valueChangedHandler =
+       ^(GCControllerDirectionPad* _Nonnull dpad, float xValue, float yValue) {
+         FlutterViewController* strongSelf = weakSelf;
+@@ -1227,7 +1103,6 @@ - (void)setupControllers {  // TODO: dangerous, multiple registrations can happe
+     if (gamepad != nil) {
+       atLeastOne = true;
+       [self setupTouchesWithGamepad:gamepad];
+-      [self setupDirectionalGamepadFallbacks:gamepad];
+     }
+   }
+   if (!atLeastOne) {
+@@ -1350,19 +1225,10 @@ - (void)viewDidLoad {
+   TRACE_EVENT0("flutter", "viewDidLoad");
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-  // Directional press recognizers use the legacy android keyevent channel
+-  // atomically on Began. Physical tvOS release builds reliably deliver those;
+-  // the UIKit presses overrides below still consume the same remote presses so
+-  // raw iOS-plane fallback keys do not leak into Flutter.
+-#if defined(TARGET_OS_TV) && TARGET_OS_TV
+-  [self createRecognizerFor:UIPressTypeLeftArrow action:@selector(handleLeftTap:)];
+-  [self createRecognizerFor:UIPressTypeRightArrow action:@selector(handleRightTap:)];
+-  [self createRecognizerFor:UIPressTypeUpArrow action:@selector(handleUpTap:)];
+-  [self createRecognizerFor:UIPressTypeDownArrow action:@selector(handleDownTap:)];
+-  [self createRecognizerFor:UIPressTypeSelect action:@selector(handleCenterTap:)];
++  // D-pad arrows, Select, and Menu are synthesized from UIPressesEvent below.
++  // Avoid registering gesture recognizers or GameController button fallbacks for
++  // those buttons; competing paths were observed to miss or double-fire on tvOS.
+   [self createRecognizerFor:UIPressTypePlayPause action:@selector(handlePlayPauseTap:)];
+-  self.menuPressGestureRecognizer =
+-      [self createRecognizerFor:UIPressTypeMenu action:@selector(handleMenuTap:)];
+ 
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wunguarded-availability-new"
+@@ -1376,7 +1242,6 @@ - (void)viewDidLoad {
+   }
+ 
+ #pragma clang diagnostic pop
+-#endif  // TARGET_OS_TV
+ 
+   [self setupControllers];
+   [self setupWalnutController];
+@@ -1628,7 +1493,6 @@ - (void)dealloc {
+   _rotationGestureRecognizer.delegate = nil;
+ #else
+   [self.tvosSystemNavigationChannel setMessageHandler:nil];
+-  self.menuPressGestureRecognizer.delegate = nil;
+ #endif
+ }
+ 
+@@ -2318,8 +2182,8 @@ - (void)superPressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEven
+ //
+ // Note: on tvOS, Siri Remote presses are synthesized directly from UIPress.type
+ // so HardwareKeyboard.instance (the modern key path used by Focus and Shortcuts)
+-// receives Select/arrow/etc. The UIPressGestureRecognizer-based legacy
+-// gamepadtouchevent tap path still fires in parallel; that's harmless.
++// receives Select/arrow/etc. Gesture recognizers and GameController button
++// fallbacks are intentionally not registered for those buttons.
+ 
+ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {

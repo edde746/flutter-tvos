@@ -1,0 +1,26 @@
+From be7edbb17b266540974705e3477545332cca6aa6 Mon Sep 17 00:00:00 2001
+From: tvOS port <tvos@local>
+Date: Mon, 18 May 2026 20:40:49 +0200
+Subject: [PATCH 39/53] tvos: reflect metal-tvos impeller shaders
+
+
+diff --git a/engine/src/flutter/impeller/tools/compiler.gni b/engine/src/flutter/impeller/tools/compiler.gni
+index dca734b7..96002c24 100644
+--- a/engine/src/flutter/impeller/tools/compiler.gni
++++ b/engine/src/flutter/impeller/tools/compiler.gni
+@@ -33,6 +33,7 @@ template("_impellerc") {
+ # Required: shader_target_flags     The target flag(s) to append. Valid options:
+ #                                       --sksl
+ #                                       --metal-ios
++#                                       --metal-tvos
+ #                                       --metal-desktop
+ #                                       --opengl-es
+ #                                       --opengl-desktop
+@@ -195,6 +196,7 @@ template("impellerc") {
+       if (filter_include(shader_target_flags,
+                          [
+                            "--metal-ios",
++                           "--metal-tvos",
+                            "--metal-desktop",
+                            "--opengl-es",
+                            "--opengl-desktop",

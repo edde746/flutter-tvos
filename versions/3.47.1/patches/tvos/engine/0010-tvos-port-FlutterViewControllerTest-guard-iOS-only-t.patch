@@ -1,0 +1,134 @@
+From 805b75adf0dbaa79de8ab163240ef2d19ebab684 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 21:56:46 +0200
+Subject: [PATCH 10/53] tvos: port FlutterViewControllerTest (guard iOS-only
+ tests)
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
+index 471cfb6a..a8eec904 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm
+@@ -413,6 +413,7 @@ - (void)testSetupKeyboardSpringAnimationIfNeeded {
+   XCTAssertTrue(keyboardSpringAnimation != nil);
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ /**
+  * @brief Verifies that simultaneous compounding animation calls are handled correctly.
+  *
+@@ -513,7 +514,9 @@ - (void)testKeyboardAnimationIsShowingAndCompounding {
+   XCTAssertFalse(isShowingAnimation4);
+   XCTAssertTrue(isShowingAnimation3 == isShowingAnimation4);
+ }
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testShouldIgnoreKeyboardNotification {
+   FlutterViewController* viewController =
+       [[FlutterViewController alloc] initWithEngine:self.mockEngine nibName:nil bundle:nil];
+@@ -607,7 +610,7 @@ - (void)testShouldIgnoreKeyboardNotification {
+ 
+   [(id)viewControllerMock stopMocking];
+ }
+-
++#endif
+ - (void)testKeyboardAnimationWillNotCrashWhenEngineDestroyed {
+   FlutterEngine* engine = [[FlutterEngine alloc] init];
+   [engine runWithEntrypoint:nil];
+@@ -720,6 +723,7 @@ - (void)testKeyboardAnimationWillWaitUIThreadVsync {
+   [mockCADisplayLink stopMocking];
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testCalculateKeyboardAttachMode {
+   FlutterViewController* viewController =
+       [[FlutterViewController alloc] initWithEngine:self.mockEngine nibName:nil bundle:nil];
+@@ -848,6 +852,7 @@ - (void)testCalculateKeyboardAttachMode {
+   keyboardMode = [viewController.keyboardInsetManager calculateKeyboardAttachMode:notification];
+   XCTAssertTrue(keyboardMode == FlutterKeyboardModeHidden);
+ }
++#endif
+ 
+ - (void)testCalculateMultitaskingAdjustment {
+   UIScreen* screen = [UIScreen mainScreen];
+@@ -893,6 +898,7 @@ - (void)testCalculateKeyboardInset {
+   XCTAssertTrue(inset == 300 * screen.scale);
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testHandleKeyboardNotification {
+   UIScreen* screen = [self setUpMockScreen];
+   CGFloat screenWidth = screen.bounds.size.width;
+@@ -927,7 +933,9 @@ - (void)testHandleKeyboardNotification {
+   XCTAssertTrue(managerMock.targetViewInsetBottom == 320 * screen.scale);
+   XCTAssertTrue(managerMock.didCallStartKeyboardAnimation);
+ }
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testEnsureBottomInsetIsZeroWhenKeyboardDismissed {
+   FlutterEnginePartialMock* engine = [[FlutterEnginePartialMock alloc] init];
+   [engine runWithEntrypoint:nil];
+@@ -1016,6 +1024,7 @@ - (void)testStopKeyBoardAnimationWhenReceivedWillHideNotificationAfterWillShowNo
+   XCTAssertNil([viewController.keyboardInsetManager keyboardAnimationView]);
+   XCTAssertNil([viewController.keyboardInsetManager keyboardSpringAnimation]);
+ }
++#endif
+ 
+ - (void)testEnsureViewportMetricsWillInvokeAndDisplayLinkWillInvalidateInViewDidDisappear {
+   FlutterEnginePartialMock* engine = [[FlutterEnginePartialMock alloc] init];
+@@ -1702,6 +1711,7 @@ - (void)testAccessibilityPerformEscapePopsRoute {
+   [mockNavigationChannel stopMocking];
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testPerformOrientationUpdateForcesOrientationChange {
+   [self orientationTestWithOrientationUpdate:UIInterfaceOrientationMaskPortrait
+                           currentOrientation:UIInterfaceOrientationLandscapeLeft
+@@ -1778,7 +1788,9 @@ - (void)testPerformOrientationUpdateForcesOrientationChange {
+                         didChangeOrientation:YES
+                         resultingOrientation:UIInterfaceOrientationPortrait];
+ }
++#endif
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testPerformOrientationUpdateDoesNotForceOrientationChange {
+   [self orientationTestWithOrientationUpdate:UIInterfaceOrientationMaskAll
+                           currentOrientation:UIInterfaceOrientationPortrait
+@@ -1845,9 +1857,11 @@ - (void)testPerformOrientationUpdateDoesNotForceOrientationChange {
+                         didChangeOrientation:NO
+                         resultingOrientation:static_cast<UIInterfaceOrientation>(0)];
+ }
++#endif
+ 
+ // Perform an orientation update test that fails when the expected outcome
+ // for an orientation update is not met
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)orientationTestWithOrientationUpdate:(UIInterfaceOrientationMask)mask
+                           currentOrientation:(UIInterfaceOrientation)currentOrientation
+                         didChangeOrientation:(BOOL)didChange
+@@ -1908,6 +1922,7 @@ - (void)orientationTestWithOrientationUpdate:(UIInterfaceOrientationMask)mask
+   [mockApplication stopMocking];
+   XCTAssertNil(weakPreferences);
+ }
++#endif
+ 
+ // Creates a mocked UITraitCollection with nil values for everything except accessibilityContrast,
+ // which is set to the given "contrast".
+@@ -1964,6 +1979,7 @@ - (void)testDoesntLoadViewInInit {
+   engine.viewController = nil;
+ }
+ 
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ - (void)testHideOverlay {
+   FlutterDartProject* project = [[FlutterDartProject alloc] init];
+   FlutterEngine* engine = [[FlutterEngine alloc] initWithName:@"foobar" project:project];
+@@ -1977,6 +1993,7 @@ - (void)testHideOverlay {
+   XCTAssertTrue(realVC.prefersHomeIndicatorAutoHidden, @"");
+   engine.viewController = nil;
+ }
++#endif
+ 
+ - (void)testNotifyLowMemory {
+   FlutterEnginePartialMock* mockEngine = [[FlutterEnginePartialMock alloc] init];

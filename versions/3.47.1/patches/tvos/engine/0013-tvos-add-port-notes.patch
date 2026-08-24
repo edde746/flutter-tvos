@@ -1,0 +1,194 @@
+From 7fec0864ad46c955f9bfe7720d4064a2a6c820fe Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:02:19 +0200
+Subject: [PATCH 13/53] tvos: add port notes
+
+
+diff --git a/TVOS_PORT_NOTES.md b/TVOS_PORT_NOTES.md
+new file mode 100644
+index 00000000..bb6ac108
+--- /dev/null
++++ b/TVOS_PORT_NOTES.md
+@@ -0,0 +1,182 @@
++# tvOS port notes (3.27.4 -> 3.41.6)
++
++This document tracks the port of LibertyGlobal's tvOS patch (`tvos-patch.diff`,
++based on `flutter-tvos-engine@3.27.4`) onto upstream Flutter 3.41.6. The patch
++originally touched 39 files across the standalone engine repo; 3.29 merged
++engine into flutter/flutter, so paths shift to `engine/src/flutter/...`.
++
++All commits are on branch `tvos-port` (local only).
++
++## Architectural decisions
++
++1. **DEPS**
++   - 3.41.6 has a top-level `DEPS` at the flutter repo root (monorepo layout).
++     The old `src` buildroot entry no longer exists (buildroot absorbed into
++     the repo), and `perfetto` moved under `dart/third_party`.
++   - We added the `upc_git` / `upc_revision` vars and switched the **dart** and
++     **skia** deps to `LibertyGlobal/flutter-tvos-{dart,skia}@3.27.4`.
++   - Buildroot and perfetto forks are intentionally *not* applied: there is no
++     analogous top-level entry in 3.41.6 and applying them would require
++     restructuring the monorepo layout. Follow-up work: investigate whether
++     LibertyGlobal's buildroot changes are needed at all for tvOS (or whether
++     they were iOS-simulator fixes already landed upstream in 3.41.6).
++   - Known compile risk: the LibertyGlobal forks are pinned at 3.27.4 versions
++     of Dart/Skia, but Flutter 3.41.6 expects newer revisions per the rest of
++     `DEPS`. **Expect API mismatches on first compile; this is a known issue
++     that the user agreed to debug at compile time.**
++
++2. **Impeller Metal backend** (`allocator_mtl.mm`, `context_mtl.mm`,
++   `command_buffer_mtl.mm`, `sampler_library_mtl.mm`): 3.41.6 simplified these
++   files. Most `@available(...)` fallback branches for pre-iOS-13 were removed
++   and direct `supportsFamily:` queries are used. Rather than textually
++   replicating the 3.27.4 patch hunks (which would no-op on missing code), we
++   applied the same **architectural intent**: add
++   `#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)` guards around
++   `supportsFamily:` calls and provide `MTLFeatureSet_tvOS_GPUFamily*_v1`
++   fallbacks for tvOS.
++
++3. **`FlutterPlatformViews_Internal.mm`**: removed in 3.41.6 — the code that
++   was `TouchInterceptingView` + `containsWebView` is now in
++   `FlutterPlatformViews.mm`. Patch applied to that file instead.
++
++4. **`FlutterViewController.mm`** (421-line change): Ported fully. All the
++   Siri-Remote gesture recognizers, GCController + MPRemoteCommandCenter
++   setup, the `sendGamepadTouches:` channel, and the selection overlay
++   injection are now behind `#ifdef TARGET_OS_TV` blocks. iOS paths
++   (UIHoverGestureRecognizer, UIPanGestureRecognizer trackpad setup, pinch &
++   rotation recognizers, keyboard animation system, home indicator, status
++   bar) are wrapped with `#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)`.
++
++5. **Test files** (`*Test.mm`): Each iOS-specific test is guarded
++   individually with `#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)`. The tests
++   are **also disabled at the BUILD.gn level** (all test sources commented
++   out), so the guards are largely defense-in-depth.
++
++## Files ported cleanly
++
++These files were ported with no TODOs and no deferred work:
++
++- `engine/src/flutter/BUILD.gn` — scenario_app commented out for tvOS.
++- `engine/src/flutter/build/secondary/flutter/third_party/ocmock/BUILD.gn` — simulator flag.
++- `engine/src/flutter/display_list/BUILD.gn` — simulator flag.
++- `engine/src/flutter/fml/build_config.h` — tvOS defines FML_OS_IOS.
++- `engine/src/flutter/fml/logging.cc` — debug-mode syslog early-return.
++- `engine/src/flutter/impeller/compiler/switches.cc` — `metal-tvos` target platform.
++- `engine/src/flutter/impeller/renderer/backend/metal/allocator_mtl.mm` — feature set guards.
++- `engine/src/flutter/impeller/renderer/backend/metal/command_buffer_mtl.mm` — iOS 14 encoder-info guards.
++- `engine/src/flutter/impeller/renderer/backend/metal/context_mtl.mm` — framebuffer-fetch and SIMD guards.
++- `engine/src/flutter/impeller/renderer/backend/metal/sampler_library_mtl.mm` — border color guard.
++- `engine/src/flutter/impeller/tools/metal_library.py` — `appletvos`/`appletvsimulator` SDK.
++- `engine/src/flutter/impeller/tools/shaders_mtl.gni` — `--metal-tvos` shader flag.
++- `engine/src/flutter/shell/platform/darwin/ios/BUILD.gn` — frameworks + tests.
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPlugin.h`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterPluginAppLifeCycleDelegate.h`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.h` (new)
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAccessibilitySelectionView.mm` (new)
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterAppDelegate.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterDartProject.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPlugin.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformViews.mm` (refactor target for old `_Internal.mm` hunk)
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPluginAppLifeCycleDelegate.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterUndoManagerPlugin.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterView.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.h`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/SemanticsObject.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/profiler_metrics_ios.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/vsync_waiter_ios.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/ios_surface.mm`
++- `engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm`
++
++## Files ported with TODOs
++
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterPlatformPluginTest.mm`
++  - Large chunks of test methods guarded with `#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)`.
++  - Added `// TODO tvos: update test for 3.41.6 API` note near the top of
++    `@implementation`. Tests are also disabled at BUILD.gn level.
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPluginTest.mm`
++  - Scribble-related and pasteboard-related test calls guarded individually.
++- `engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTest.mm`
++  - Keyboard- and orientation-related test methods guarded individually.
++  - `testHideOverlay` (uses `FlutterViewControllerHideHomeIndicator`) guarded.
++
++## Files NOT ported / deferred
++
++None. Every file listed in the patch summary has been touched. The only
++architectural shift is:
++
++- **`FlutterPlatformViews_Internal.mm` was refactored away in 3.41.6.** The
++  8-line patch hunk (WebKit import guard + `multipleTouchEnabled` guard +
++  `containsWebView` WKWebView-class guard) was applied to
++  `FlutterPlatformViews.mm` instead, which holds the equivalent code. **Marked
++  as ported cleanly** because the intent is fully preserved — just at a
++  different file path.
++
++## Known compile-risk areas to investigate next
++
++Priority-ordered list of things to watch for on first compile attempt:
++
++1. **DEPS fork mismatches** (highest risk). LibertyGlobal's
++   `flutter-tvos-dart@3.27.4` and `flutter-tvos-skia@3.27.4` have commit SHAs
++   that predate Flutter 3.41.6's expected dart/skia. Symptoms will likely be:
++   missing `_FlutterMergeBranchCommit` style symbols, unresolved Dart API
++   calls in `dart:ui`, or Skia C++ ABI mismatches. May need to either:
++   - upgrade the LibertyGlobal forks to match 3.41.6's dart/skia SHAs, or
++   - revert dart/skia in DEPS to upstream and accept any tvOS-specific fixes
++     from LibertyGlobal as additional local patches.
++
++2. **Impeller Metal feature-set fallbacks**. 3.41.6 assumes iOS 13+ (direct
++   `supportsFamily:` calls). Our tvOS branches call the older
++   `MTLFeatureSet_tvOS_GPUFamily*_v1` APIs which are deprecated. Compile may
++   warn; may need `API_DEPRECATED` opt-out pragma.
++
++3. **`UIStatusBarStyleDarkContent`** in `FlutterPlatformPlugin.mm`. Introduced
++   in iOS 13 — guarded in 3.41.6 but on tvOS the entire code path is
++   `#if`-disabled, so this should not compile on tvOS. Verify.
++
++4. **`FlutterPlatformPlugin.mm` `SetStatusBarHidden/Style` helpers**: 3.41.6
++   changed these from the old `APPLICATION_EXTENSION_API_ONLY` macro to
++   `FlutterSharedApplication`. The tvOS guards skip the entire helpers. Verify
++   no call site left dangling.
++
++5. **`accessibility_bridge.mm`** `childrenInHitTestOrder` field: the patch
++   assumes the 3.27.4 API. In 3.41.6 this field still exists on
++   `SemanticsObject`. Our tvOS branches don't set it (preserving the
++   patch's intent), which should be safe — verify no later code path asserts
++   its non-null-ness.
++
++6. **FlutterViewController.mm tvOS selectionView**: we call
++   `setNeedsFocusUpdate` / `updateFocusIfNeeded` in
++   `FlutterAccessibilitySelectionView` — both are tvOS-only UIKit APIs, so
++   the class file has no iOS-impacting code, but the `#import` in
++   `accessibility_bridge.mm` is unconditional. If someone builds the iOS
++   target from this worktree, the import will resolve but the class will
++   never be instantiated — should be OK, but verify.
++
++7. **`FlutterTextInputPlugin.h` `UIIndirectScribbleInteractionDelegate`
++   protocol conformance**: removed on tvOS. Verify no caller in the framework
++   tries to assign a plugin instance to a variable typed as the protocol.
++
++8. **`FlutterViewController.mm` `FlutterViewControllerHideHomeIndicator` /
++   `...ShowHomeIndicator` notification posts**: tvOS code paths in the
++   platform plugin (`setSystemChromeEnabledSystemUIMode:`) still try to post
++   these notifications; the observer side is disabled. Benign, but it's
++   worth cleaning up.
++
++9. **Test file build**: even though test sources are commented out in BUILD.gn,
++   our guards still need to compile successfully when anyone re-enables
++   individual tests on iOS. A mis-placed `#endif` would surface there.
++
++## Summary
++
++- 39 of 39 patch files addressed.
++- 3 files ported with TODOs (all test files; iOS tests still build fine).
++- 0 files deferred.
++- Biggest architectural adaptation: Impeller Metal backend (simplified in
++  3.41.6 — applied patch *intent* rather than textual hunks) and
++  FlutterPlatformViews refactor.
++- Branch: `tvos-port` in the local engine worktree.

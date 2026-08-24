@@ -1,0 +1,59 @@
+From cd4a21e0dcd6462869543b9980d9fc5439dd4bdd Mon Sep 17 00:00:00 2001
+From: tvOS port <tvos@local>
+Date: Mon, 18 May 2026 20:35:57 +0200
+Subject: [PATCH 37/53] tvos: populate both tvos SDK paths
+
+
+diff --git a/engine/src/build/config/darwin/darwin_sdk.gni b/engine/src/build/config/darwin/darwin_sdk.gni
+index db2b33bd..671c46f5 100644
+--- a/engine/src/build/config/darwin/darwin_sdk.gni
++++ b/engine/src/build/config/darwin/darwin_sdk.gni
+@@ -131,12 +131,10 @@ if (is_ios && !is_tvos) {
+   }
+ }
+ if (is_ios && is_tvos) {
+-  if (use_tvos_simulator &&
+-      (tvos_simulator_platform_path == "" || tvos_simulator_sdk_path == "")) {
+-    _need_darwin_sdk_run = true
+-  }
+-  if (!use_tvos_simulator &&
+-      (tvos_device_platform_path == "" || tvos_device_sdk_path == "")) {
++  # GN evaluates all tvOS toolchain blocks, so both device and simulator SDK
++  # paths must be populated even when only one is the default toolchain.
++  if (tvos_simulator_platform_path == "" || tvos_simulator_sdk_path == "" ||
++      tvos_device_platform_path == "" || tvos_device_sdk_path == "") {
+     _need_darwin_sdk_run = true
+   }
+ }
+@@ -225,20 +223,17 @@ if (is_ios && !is_tvos) {
+ # tvOS-specific toolchains in //build/toolchain/mac reference tvos_*_sdk_path
+ # directly for version-min flags.
+ if (is_ios && is_tvos) {
+-  if (use_tvos_simulator) {
+-    if (tvos_simulator_platform_path == "") {
+-      tvos_simulator_platform_path = _sdk_result.appletvsimulator_platform_path
+-    }
+-    if (tvos_simulator_sdk_path == "") {
+-      tvos_simulator_sdk_path = _sdk_result.appletvsimulator_sdk_path
+-    }
+-  } else {
+-    if (tvos_device_platform_path == "") {
+-      tvos_device_platform_path = _sdk_result.appletvos_platform_path
+-    }
+-    if (tvos_device_sdk_path == "") {
+-      tvos_device_sdk_path = _sdk_result.appletvos_sdk_path
+-    }
++  if (tvos_simulator_platform_path == "") {
++    tvos_simulator_platform_path = _sdk_result.appletvsimulator_platform_path
++  }
++  if (tvos_simulator_sdk_path == "") {
++    tvos_simulator_sdk_path = _sdk_result.appletvsimulator_sdk_path
++  }
++  if (tvos_device_platform_path == "") {
++    tvos_device_platform_path = _sdk_result.appletvos_platform_path
++  }
++  if (tvos_device_sdk_path == "") {
++    tvos_device_sdk_path = _sdk_result.appletvos_sdk_path
+   }
+ 
+   if (use_tvos_simulator) {

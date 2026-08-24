@@ -1,0 +1,32 @@
+From db9e2e164de9bb45f5a06b5a04e13935c9b48083 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Fri, 24 Apr 2026 10:30:40 +0200
+Subject: [PATCH 3/3] tvos: guard DART_ENABLE_RX_WORKAROUNDS mach apis on tvos
+
+
+diff --git a/runtime/vm/virtual_memory.h b/runtime/vm/virtual_memory.h
+index 29e181c68..08b4297c4 100644
+--- a/runtime/vm/virtual_memory.h
++++ b/runtime/vm/virtual_memory.h
+@@ -18,6 +18,8 @@ namespace dart {
+ 
+ #if defined(DART_HOST_OS_IOS) && !defined(DART_PRECOMPILED_RUNTIME) &&         \
+     !defined(DART_HOST_OS_SIMULATOR)
++#include <TargetConditionals.h>
++#if !(defined(TARGET_OS_TV) && TARGET_OS_TV)
+ // We might need RX workarounds to enable JIT on physical iOS devices.
+ //
+ // Older iOS versions allow mprotect to flip between RW <-> RX on code
+@@ -35,9 +37,11 @@ namespace dart {
+ // * Debugger integration point (see NOTIFY_DEBUGGER_ABOUT_RX_PAGES).
+ //
+ // Note: we only use this on newer iOS versions because dual mapping causes
+-// kernel crashes on M4 Mac OS X devices.
++// kernel crashes on M4 Mac OS X devices. Not enabled on tvOS, which lacks the
++// required Mach thread_{swap,set}_exception_ports APIs.
+ #define DART_ENABLE_RX_WORKAROUNDS
+ #endif
++#endif
+ 
+ class Cage;
+ 

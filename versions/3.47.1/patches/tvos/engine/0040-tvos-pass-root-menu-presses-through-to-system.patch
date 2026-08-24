@@ -1,0 +1,236 @@
+From 276abe425da5a3ddbebccbf8c5380910eaaa273c Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Tue, 26 May 2026 15:52:53 +0200
+Subject: [PATCH 40/53] tvos: pass root menu presses through to system
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 5b4787f8..f755f59a 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -77,6 +77,9 @@
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate, UIGestureRecognizerDelegate>
+ @property(nonatomic, strong) FlutterBasicMessageChannel* keyEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* gamepadTouchEventChannel;
++@property(nonatomic, strong) FlutterBasicMessageChannel* tvosSystemNavigationChannel;
++@property(nonatomic, strong) UILongPressGestureRecognizer* menuPressGestureRecognizer;
++@property(nonatomic, assign) BOOL menuPressPassthroughEnabled;
+ // Apple only populates UIPress.key for physical keyboards, so Siri Remote button
+ // presses arrive at handlePressEvent: with key == nil and never reach
+ // HardwareKeyboard.instance. We synthesize FlutterKeyEvents directly via the
+@@ -900,6 +903,10 @@ - (uint64_t)logicalForSynthesizedPhysicalKey:(uint64_t)physical {
+   }
+ }
+ 
++- (BOOL)shouldPassMenuPressToSystem:(UIPress*)press {
++  return self.menuPressPassthroughEnabled && press.type == UIPressTypeMenu;
++}
++
+ - (void)releaseAllSynthesizedPresses {
+   [self stopSynthesizedRepeat];
+ 
+@@ -915,6 +922,17 @@ - (void)releaseAllSynthesizedPresses {
+   }
+ }
+ 
++- (void)setMenuPressPassthroughEnabled:(BOOL)enabled {
++  if (_menuPressPassthroughEnabled == enabled) {
++    return;
++  }
++  _menuPressPassthroughEnabled = enabled;
++  self.menuPressGestureRecognizer.enabled = !enabled;
++  if (enabled) {
++    [self releaseAllSynthesizedPresses];
++  }
++}
++
+ - (void)sendSynthesizedRepeat {
+   NSNumber* physicalKey = self.synthesizedRepeatPhysicalKey;
+   if (physicalKey == nil) {
+@@ -994,6 +1012,10 @@ - (BOOL)remotePhysicalLogicalForPress:(UIPress*)press
+ - (BOOL)maybeSynthesizeForPress:(UIPress*)press
+                       eventType:(FlutterKeyEventType)type API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
++    if ([self shouldPassMenuPressToSystem:press]) {
++      return NO;
++    }
++
+     if (press.type == UIPressTypeSelect) {
+       // Select long-press delivery is more reliable through
+       // UIPressGestureRecognizer. Consume the UIKit press lifecycle so it
+@@ -1126,6 +1148,10 @@ - (void)handlePlayPauseTap:(UITapGestureRecognizer*)recognizer {
+   [self handleTap:recognizer withType:@"android" keyType:0x55];
+ }
+ - (void)handleMenuTap:(UITapGestureRecognizer*)recognizer {
++  if (self.menuPressPassthroughEnabled) {
++    return;
++  }
++
+   // Back/Menu is also sent atomically on Began. Waiting for Ended on tvOS can
+   // delay release across route changes, which used to replay stale back input.
+   //
+@@ -1154,13 +1180,14 @@ - (void)handlePageUpTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(1
+ - (void)handlePageDownTap:(UITapGestureRecognizer*)recognizer API_AVAILABLE(tvos(14.3)) {
+   [self handleTap:recognizer withType:@"android" keyType:0xA7];
+ }
+-- (void)createRecognizerFor:(UIPressType)pressType action:(nullable SEL)action {
++- (UILongPressGestureRecognizer*)createRecognizerFor:(UIPressType)pressType action:(nullable SEL)action {
+   UILongPressGestureRecognizer* tapGestureRecognizer =
+       [[UILongPressGestureRecognizer alloc] initWithTarget:self action:action];
+   tapGestureRecognizer.allowedPressTypes = @[ @(pressType) ];
+   tapGestureRecognizer.minimumPressDuration = 0.0;
+   tapGestureRecognizer.delegate = self;
+   [self.view addGestureRecognizer:tapGestureRecognizer];
++  return tapGestureRecognizer;
+ }
+ 
+ - (void)sendGamepadTouchesWithType:(NSString*)type x:(float)x y:(float)y {
+@@ -1275,6 +1302,46 @@ - (void)setupWalnutController {
+ - (void)controllerConnected:(NSNotification*)notification {
+   [self setupControllers];
+ }
++
++- (void)setupTvosSystemNavigationChannel {
++  self.tvosSystemNavigationChannel = [FlutterBasicMessageChannel
++      messageChannelWithName:@"flutter/tvos_system_navigation"
++             binaryMessenger:[self binaryMessenger]
++                       codec:[FlutterJSONMessageCodec sharedInstance]];
++
++  __weak FlutterViewController* weakSelf = self;
++  [self.tvosSystemNavigationChannel setMessageHandler:^(id message, FlutterReply reply) {
++    FlutterViewController* strongSelf = weakSelf;
++    if (!strongSelf) {
++      if (reply) {
++        reply(@NO);
++      }
++      return;
++    }
++
++    BOOL enabled = NO;
++    if ([message isKindOfClass:[NSDictionary class]]) {
++      id value = ((NSDictionary*)message)[@"menuPassthroughEnabled"];
++      if ([value respondsToSelector:@selector(boolValue)]) {
++        enabled = [value boolValue];
++      }
++    } else if ([message respondsToSelector:@selector(boolValue)]) {
++      enabled = [message boolValue];
++    }
++
++    void (^applyChange)(void) = ^{
++      [strongSelf setMenuPressPassthroughEnabled:enabled];
++      if (reply) {
++        reply(@YES);
++      }
++    };
++    if ([NSThread isMainThread]) {
++      applyChange();
++    } else {
++      dispatch_async(dispatch_get_main_queue(), applyChange);
++    }
++  }];
++}
+ #endif  // TARGET_OS_TV
+ 
+ #pragma mark - UIViewController lifecycle notifications
+@@ -1294,7 +1361,8 @@ - (void)viewDidLoad {
+   [self createRecognizerFor:UIPressTypeDownArrow action:@selector(handleDownTap:)];
+   [self createRecognizerFor:UIPressTypeSelect action:@selector(handleCenterTap:)];
+   [self createRecognizerFor:UIPressTypePlayPause action:@selector(handlePlayPauseTap:)];
+-  [self createRecognizerFor:UIPressTypeMenu action:@selector(handleMenuTap:)];
++  self.menuPressGestureRecognizer =
++      [self createRecognizerFor:UIPressTypeMenu action:@selector(handleMenuTap:)];
+ 
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wunguarded-availability-new"
+@@ -1325,6 +1393,7 @@ - (void)viewDidLoad {
+       messageChannelWithName:@"flutter/gamepadtouchevent"
+              binaryMessenger:[self binaryMessenger]
+                        codec:[FlutterJSONMessageCodec sharedInstance]];
++  [self setupTvosSystemNavigationChannel];
+ #endif  // TARGET_OS_TV
+ 
+   if (self.engine && self.engineNeedsLaunch) {
+@@ -1557,6 +1626,9 @@ - (void)dealloc {
+   _continuousScrollingPanGestureRecognizer.delegate = nil;
+   _pinchGestureRecognizer.delegate = nil;
+   _rotationGestureRecognizer.delegate = nil;
++#else
++  [self.tvosSystemNavigationChannel setMessageHandler:nil];
++  self.menuPressGestureRecognizer.delegate = nil;
+ #endif
+ }
+ 
+@@ -2255,6 +2327,9 @@ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+     NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+     for (UIPress* press in presses) {
++      if ([self shouldPassMenuPressToSystem:press]) {
++        continue;
++      }
+       if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeDown]) {
+         [synthesizedPresses addObject:press];
+       }
+@@ -2263,6 +2338,10 @@ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([self shouldPassMenuPressToSystem:press]) {
++        [self superPressesCancelled:[NSSet setWithObject:press] withEvent:event];
++        continue;
++      }
+       if ([synthesizedPresses containsObject:press]) {
+         continue;
+       }
+@@ -2283,6 +2362,10 @@ - (void)pressesChanged:(NSSet<UIPress*>*)presses
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([self shouldPassMenuPressToSystem:press]) {
++        [self superPressesChanged:[NSSet setWithObject:press] withEvent:event];
++        continue;
++      }
+       uint64_t physical = 0;
+       uint64_t logical = 0;
+       if ([self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
+@@ -2305,6 +2388,9 @@ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+     NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+     for (UIPress* press in presses) {
++      if ([self shouldPassMenuPressToSystem:press]) {
++        continue;
++      }
+       if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp]) {
+         [synthesizedPresses addObject:press];
+       }
+@@ -2313,6 +2399,10 @@ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([self shouldPassMenuPressToSystem:press]) {
++        [self superPressesEnded:[NSSet setWithObject:press] withEvent:event];
++        continue;
++      }
+       if ([synthesizedPresses containsObject:press]) {
+         continue;
+       }
+@@ -2333,6 +2423,9 @@ - (void)pressesCancelled:(NSSet<UIPress*>*)presses
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+     NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+     for (UIPress* press in presses) {
++      if ([self shouldPassMenuPressToSystem:press]) {
++        continue;
++      }
+       if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp]) {
+         [synthesizedPresses addObject:press];
+       }
+@@ -2341,6 +2434,10 @@ - (void)pressesCancelled:(NSSet<UIPress*>*)presses
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++      if ([self shouldPassMenuPressToSystem:press]) {
++        [self superPressesBegan:[NSSet setWithObject:press] withEvent:event];
++        continue;
++      }
+       if ([synthesizedPresses containsObject:press]) {
+         continue;
+       }

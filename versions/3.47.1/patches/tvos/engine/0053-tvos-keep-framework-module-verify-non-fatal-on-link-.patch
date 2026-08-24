@@ -1,0 +1,33 @@
+From 7494baa59fb2d9532ff59983a5d9b0c0fabf9f88 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Mon, 24 Aug 2026 10:08:35 +0200
+Subject: [PATCH 53/53] tvos: keep framework module verify non-fatal on link
+ warnings
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+index 7ba02a8f..a6713537 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
++++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+@@ -517,11 +517,16 @@ shared_library("copy_and_verify_framework_module") {
+   framework_search_path = rebase_path("$root_out_dir")
+   visibility = [ ":*" ]
+   cflags_objc = [ "-F$framework_search_path" ]
+-  ldflags = [
+-    "-F$framework_search_path",
+-    "-Xlinker",
+-    "-fatal_warnings",
+-  ]
++  ldflags = [ "-F$framework_search_path" ]
++  if (!is_tvos) {
++    # tvos: ld64 warns about its default /usr/local/lib search path on hosts
++    # without one, and -fatal_warnings turns that environmental warning into a
++    # build break. Keep module verification, drop warning-fatality on the port.
++    ldflags += [
++      "-Xlinker",
++      "-fatal_warnings",
++    ]
++  }
+ 
+   sources = [ "framework/Source/FlutterUmbrellaImport.m" ]
+   deps = [

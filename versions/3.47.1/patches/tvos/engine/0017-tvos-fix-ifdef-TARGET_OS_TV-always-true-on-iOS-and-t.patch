@@ -1,0 +1,173 @@
+From 031ed5edf3ca8e06d1910bf4c3ceee698611d328 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Thu, 23 Apr 2026 22:47:22 +0200
+Subject: [PATCH 17/53] tvos: fix #ifdef TARGET_OS_TV (always-true on iOS) and
+ typo
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
+index f8f4dfb0..07b90b3f 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h
+@@ -57,7 +57,9 @@ FLUTTER_DARWIN_EXPORT
+ @interface FlutterViewController : UIViewController <FlutterTextureRegistry, FlutterPluginRegistry>
+ #endif
+ 
+-- (UIView*)getAccessibilitySelectionVliew;
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++- (UIView*)getAccessibilitySelectionView;
++#endif
+ 
+ /**
+  * Initializes this FlutterViewController with the specified `FlutterEngine`.
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
+index 31455b2e..b10885e0 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterTextInputPlugin.h
+@@ -30,7 +30,7 @@ typedef NS_ENUM(NSInteger, FlutterScribbleInteractionStatus) {
+   // NOLINTEND(readability-identifier-naming)
+ };
+ 
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+ @interface FlutterTextInputPlugin
+     : NSObject <FlutterKeySecondaryResponder>
+ #else
+@@ -143,7 +143,7 @@ API_AVAILABLE(ios(13.0)) @interface FlutterTextPlaceholder : UITextPlaceholder
+ #if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
+ FLUTTER_DARWIN_EXPORT
+ #endif
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+ @interface FlutterTextInputView : UIView <UITextInput>
+ #else
+ @interface FlutterTextInputView
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 13e536eb..4f592324 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -9,7 +9,7 @@
+ #import <os/log.h>
+ #include <memory>
+ 
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+ #include <GameController/GameController.h>
+ #include <MediaPlayer/MediaPlayer.h>
+ #endif
+@@ -73,7 +73,7 @@
+ // This is left a FlutterBinaryMessenger privately for now to give people a chance to notice the
+ // change. Unfortunately unless you have Werror turned on, incompatible pointers as arguments are
+ // just a warning.
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate, UIGestureRecognizerDelegate>
+ @property(nonatomic, strong) FlutterBasicMessageChannel* keyEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* gamepadTouchEventChannel;
+@@ -104,7 +104,7 @@ @interface FlutterViewController () <FlutterBinaryMessenger,
+ @property(nonatomic, assign) BOOL isHomeIndicatorHidden;
+ @property(nonatomic, assign) BOOL isPresentingViewControllerAnimating;
+ 
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+ @property(nonatomic, strong) FlutterAccessibilitySelectionView *selectionView;
+ #endif
+ 
+@@ -772,7 +772,7 @@ - (void)surfaceUpdated:(BOOL)appeared {
+ }
+ 
+ #pragma mark - remote tap handling
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+   NSMutableDictionary* keyMessage = [@{
+     @"keymap" : keyMapType,
+@@ -939,11 +939,12 @@ - (void)controllerConnected:(NSNotification*)notification {
+ - (void)viewDidLoad {
+   TRACE_EVENT0("flutter", "viewDidLoad");
+ 
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   [self createRecognizerFor:UIPressTypeUpArrow action:@selector(handleUpTap:)];
+   [self createRecognizerFor:UIPressTypeDownArrow action:@selector(handleDownTap:)];
+   [self createRecognizerFor:UIPressTypeLeftArrow action:@selector(handleLeftTap:)];
+   [self createRecognizerFor:UIPressTypeRightArrow action:@selector(handleRightTap:)];
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   [self createRecognizerFor:UIPressTypeSelect action:@selector(handleCenterTap:)];
+   [self createRecognizerFor:UIPressTypePlayPause action:@selector(handlePlayPauseTap:)];
+   [self createRecognizerFor:UIPressTypeMenu action:@selector(handleMenuTap:)];
+@@ -960,6 +961,7 @@ - (void)viewDidLoad {
+   }
+ 
+ #pragma clang diagnostic pop
++#endif  // TARGET_OS_TV
+ 
+   [self setupControllers];
+   [self setupWalnutController];
+@@ -1532,7 +1534,7 @@ - (void)dispatchTouches:(NSSet*)touches
+ }
+ 
+ - (void)touchesBegan:(NSSet*)touches withEvent:(UIEvent*)event {
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   for (UITouch* touch in touches) {
+     CGPoint location = [touch locationInView:self.view];
+     [self sendGamepadTouchesWithType:@"started" x:location.x y:location.y];
+@@ -1543,7 +1545,7 @@ - (void)touchesBegan:(NSSet*)touches withEvent:(UIEvent*)event {
+ }
+ 
+ - (void)touchesMoved:(NSSet*)touches withEvent:(UIEvent*)event {
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   for (UITouch* touch in touches) {
+     CGPoint location = [touch locationInView:self.view];
+     [self sendGamepadTouchesWithType:@"move" x:location.x y:location.y];
+@@ -1554,7 +1556,7 @@ - (void)touchesMoved:(NSSet*)touches withEvent:(UIEvent*)event {
+ }
+ 
+ - (void)touchesEnded:(NSSet*)touches withEvent:(UIEvent*)event {
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   for (UITouch* touch in touches) {
+     CGPoint location = [touch locationInView:self.view];
+     [self sendGamepadTouchesWithType:@"ended" x:location.x y:location.y];
+@@ -1565,7 +1567,7 @@ - (void)touchesEnded:(NSSet*)touches withEvent:(UIEvent*)event {
+ }
+ 
+ - (void)touchesCancelled:(NSSet*)touches withEvent:(UIEvent*)event {
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   for (UITouch* touch in touches) {
+     CGPoint location = [touch locationInView:self.view];
+     [self sendGamepadTouchesWithType:@"cancelled" x:location.x y:location.y];
+@@ -2203,7 +2205,7 @@ - (CGFloat)textScaleFactor {
+ }
+ 
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-- (UIView*)getAccessibilitySelectionVliew {
++- (UIView*)getAccessibilitySelectionView {
+   return (UIView*)self.selectionView;
+ }
+ 
+@@ -2243,7 +2245,7 @@ - (NSString*)brightnessMode {
+ // understood by the Flutter framework. See the settings system channel for more
+ // information.
+ - (NSString*)contrastMode {
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   return @"normal";
+ #else
+   UIAccessibilityContrast contrast = self.traitCollection.accessibilityContrast;
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm b/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
+index b2b7e65a..e2e1074b 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/rendering_api_selection.mm
+@@ -21,7 +21,7 @@
+ 
+ bool ShouldUseMetalRenderer() {
+   bool ios_version_supports_metal = false;
+-#ifdef TARGET_OS_TV
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
+   ios_version_supports_metal = true;  // min tvos GPU Family is same as iOS GPU family 2
+ #else
+   if (@available(iOS METAL_IOS_VERSION_BASELINE, *)) {

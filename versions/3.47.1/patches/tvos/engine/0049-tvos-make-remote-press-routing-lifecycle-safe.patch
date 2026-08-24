@@ -1,0 +1,627 @@
+From f82b7c028bbf72126295c23f7e2b507890696d40 Mon Sep 17 00:00:00 2001
+From: edde746 <86283021+edde746@users.noreply.github.com>
+Date: Sun, 26 Jul 2026 02:16:19 +0200
+Subject: [PATCH 49/53] tvos: make remote press routing lifecycle-safe
+
+
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+index a660e60c..f0c5cf6f 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
++++ b/engine/src/flutter/shell/platform/darwin/ios/BUILD.gn
+@@ -338,6 +338,7 @@ if (enable_ios_unittests) {
+       # "framework/Source/FlutterTouchInterceptingView+Test.h",
+       # "framework/Source/FlutterUndoManagerPluginTest.mm",
+       # "framework/Source/FlutterViewControllerTest.mm",
++      "framework/Source/FlutterViewControllerTvosPressTest.mm",
+       # "framework/Source/FlutterViewTest.mm",
+       # "framework/Source/SemanticsObjectTest.mm",
+       # "framework/Source/SemanticsObjectTestMocks.h",
+@@ -356,7 +357,6 @@ if (enable_ios_unittests) {
+       ":flutter_framework",
+       ":flutter_framework_source",
+       ":ios_gpu_configuration",
+-      ":ios_test_flutter_swift",
+       "//flutter/common",
+       "//flutter/lib/ui",
+       "//flutter/shell/platform/darwin/common:framework_common",
+@@ -369,6 +369,9 @@ if (enable_ios_unittests) {
+       "//flutter/third_party/tonic",
+       "//flutter/txt",
+     ]
++    if (!is_tvos) {
++      deps += [ ":ios_test_flutter_swift" ]
++    }
+     public_configs = [
+       ":ios_gpu_configuration_config",
+       "//flutter:config",
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index bed54b56..5181fe90 100644
+--- a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -75,26 +75,31 @@
+ // change. Unfortunately unless you have Werror turned on, incompatible pointers as arguments are
+ // just a warning.
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
++typedef NS_ENUM(NSUInteger, FlutterTvosPressRoute) {
++  FlutterTvosPressRouteNotRemote,
++  FlutterTvosPressRouteEngine,
++  FlutterTvosPressRouteSystem,
++};
+ @interface FlutterViewController () <FlutterBinaryMessenger, UIScrollViewDelegate, UIGestureRecognizerDelegate>
+ @property(nonatomic, strong) FlutterBasicMessageChannel* keyEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* gamepadTouchEventChannel;
+ @property(nonatomic, strong) FlutterBasicMessageChannel* tvosSystemNavigationChannel;
+ @property(nonatomic, assign) BOOL menuPressPassthroughEnabled;
+ // Apple only populates UIPress.key for physical keyboards, so Siri Remote button
+-// presses arrive at handlePressEvent: with key == nil and never reach
+-// HardwareKeyboard.instance. We synthesize FlutterKeyEvents directly via the
+-// engine's embedder key-data channel; this set tracks the synthesized presses
+-// so duplicate down/up pairs from the press lifecycle dedupe correctly.
++// presses must be routed from UIPress.type. synthesizedPressedKeys is the
++// authoritative set of engine-owned physical controls. The system-owned set
++// preserves Menu ownership until UIKit finishes delivering that press.
+ @property(nonatomic, strong) NSMutableSet<NSNumber*>* synthesizedPressedKeys;
++@property(nonatomic, strong) NSMutableSet<NSNumber*>* systemOwnedRemotePressKeys;
+ @property(nonatomic, strong) NSTimer* synthesizedRepeatDelayTimer;
+ @property(nonatomic, strong) NSTimer* synthesizedRepeatTimer;
+ @property(nonatomic, strong) NSNumber* synthesizedRepeatPhysicalKey;
+ @property(nonatomic, assign) uint64_t synthesizedRepeatLogicalKey;
+ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+-                         eventType:(FlutterKeyEventType)type
+-                          physical:(uint64_t)physical
+-                           logical:(uint64_t)logical
+-              tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4));
++                       eventType:(FlutterKeyEventType)type
++                        physical:(uint64_t)physical
++                         logical:(uint64_t)logical API_AVAILABLE(tvos(13.4));
++- (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ - (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4));
+ #else
+ @interface FlutterViewController () <FlutterBinaryMessenger,
+@@ -991,13 +996,19 @@ - (void)surfaceUpdated:(BOOL)appeared {
+   return _synthesizedPressedKeys;
+ }
+ 
+-// Dispatches a FlutterKeyEvent through the engine's embedder key-data channel,
+-// which lands on Flutter's HardwareKeyboard.instance. Dedupes against
+-// |synthesizedPressedKeys| so duplicate UIKit press lifecycle callbacks for the
+-// same logical key emit only one Down/Up pair.
+-- (BOOL)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+-                             physical:(uint64_t)physical
+-                              logical:(uint64_t)logical {
++- (NSMutableSet<NSNumber*>*)systemOwnedRemotePressKeys {
++  if (!_systemOwnedRemotePressKeys) {
++    _systemOwnedRemotePressKeys = [NSMutableSet set];
++  }
++  return _systemOwnedRemotePressKeys;
++}
++
++// Dispatches one genuine Siri Remote key event through Flutter's modern key-data
++// path, followed by the legacy raw message that commits that event in the
++// framework. The synthesized flag is reserved for engine state repair.
++- (BOOL)sendRemoteKeyEventOfType:(FlutterKeyEventType)type
++                       physical:(uint64_t)physical
++                        logical:(uint64_t)logical {
+   if (@available(tvOS 13.4, *)) {
+     NSNumber* key = @(physical);
+     if (type == kFlutterKeyEventTypeDown) {
+@@ -1023,13 +1034,18 @@ - (BOOL)sendSynthesizedKeyEventOfType:(FlutterKeyEventType)type
+         .physical = physical,
+         .logical = logical,
+         .character = nullptr,
+-        // The tvOS remote path sends keydata directly without a paired legacy
+-        // flutter/keyevent message, so mark it synthesized to make the
+-        // framework dispatch the solitary keydata packet immediately.
+-        .synthesized = true,
++        .synthesized = false,
+         .device_type = kFlutterKeyEventDeviceTypeDirectionalPad,
+     };
+     [self.engine sendKeyEvent:flutterEvent callback:nullptr userData:nullptr];
++    [self.keyEventChannel sendMessage:@{
++      @"keymap" : @"ios",
++      @"type" : type == kFlutterKeyEventTypeUp ? @"keyup" : @"keydown",
++      @"keyCode" : @(physical & 0xFFFFULL),
++      @"modifiers" : @(0),
++      @"characters" : @"",
++      @"charactersIgnoringModifiers" : @"",
++    }];
+     return YES;
+   }
+   return NO;
+@@ -1084,60 +1100,17 @@ - (BOOL)isRepeatablePressType:(UIPressType)pressType {
+   }
+ }
+ 
+-- (uint64_t)logicalForSynthesizedPhysicalKey:(uint64_t)physical {
+-  switch (physical) {
+-    case 0x00070050ULL:
+-      return 0x100000302ULL;  // LogicalKeyboardKey.arrowLeft
+-    case 0x0007004FULL:
+-      return 0x100000303ULL;  // LogicalKeyboardKey.arrowRight
+-    case 0x00070052ULL:
+-      return 0x100000304ULL;  // LogicalKeyboardKey.arrowUp
+-    case 0x00070051ULL:
+-      return 0x100000301ULL;  // LogicalKeyboardKey.arrowDown
+-    case 0x00070077ULL:
+-      return 0x10000050CULL;  // LogicalKeyboardKey.select
+-    case 0x00070029ULL:
+-      return 0x10000001BULL;  // LogicalKeyboardKey.escape
+-    default:
+-      return 0;
+-  }
+-}
+-
+ - (BOOL)shouldPassMenuPressToSystem:(UIPress*)press {
+   return self.menuPressPassthroughEnabled && press.type == UIPressTypeMenu;
+ }
+ 
+-- (void)releaseAllSynthesizedPresses {
+-  [self stopSynthesizedRepeat];
+-
+-  NSArray<NSNumber*>* pressedKeys = [self.synthesizedPressedKeys allObjects];
+-  for (NSNumber* key in pressedKeys) {
+-    uint64_t physical = key.unsignedLongLongValue;
+-    uint64_t logical = [self logicalForSynthesizedPhysicalKey:physical];
+-    if (logical == 0) {
+-      [self.synthesizedPressedKeys removeObject:key];
+-      continue;
+-    }
+-    [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeUp physical:physical logical:logical];
+-  }
+-}
+-
+-- (void)setMenuPressPassthroughEnabled:(BOOL)enabled {
+-  if (_menuPressPassthroughEnabled == enabled) {
+-    return;
+-  }
+-  _menuPressPassthroughEnabled = enabled;
+-  if (enabled) {
+-    [self releaseAllSynthesizedPresses];
+-  }
+-}
+ 
+ - (void)sendSynthesizedRepeat {
+   NSNumber* physicalKey = self.synthesizedRepeatPhysicalKey;
+   if (physicalKey == nil) {
+     return;
+   }
+-  [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeRepeat
++  [self sendRemoteKeyEventOfType:kFlutterKeyEventTypeRepeat
+                              physical:physicalKey.unsignedLongLongValue
+                               logical:self.synthesizedRepeatLogicalKey];
+ }
+@@ -1205,89 +1178,83 @@ - (BOOL)remotePhysicalLogicalForPress:(UIPress*)press
+   return NO;
+ }
+ 
+-// Synthesizes a HardwareKeyboard event for a Siri Remote press. UIKit exposes
+-// remote semantics through UIPress.type, while Flutter's normal iOS UIKey path
+-// only knows hardware-keyboard HID usages.
+-- (BOOL)maybeSynthesizeForPress:(UIPress*)press
+-                      eventType:(FlutterKeyEventType)type API_AVAILABLE(tvos(13.4)) {
+-  if (@available(tvOS 13.4, *)) {
+-    if ([self shouldPassMenuPressToSystem:press]) {
+-      return NO;
+-    }
+-
+-    uint64_t physical = 0;
+-    uint64_t logical = 0;
+-    if (![self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
+-      return NO;
+-    }
+-    return [self synthesizeRemotePressType:press.type
+-                                 eventType:type
+-                                  physical:physical
+-                                   logical:logical
+-                      tapIfMissingKeyDown:NO];
+-  }
+-  return NO;
+-}
+ 
+ - (BOOL)synthesizeRemotePressType:(UIPressType)pressType
+-                         eventType:(FlutterKeyEventType)type
+-                          physical:(uint64_t)physical
+-                           logical:(uint64_t)logical
+-               tapIfMissingKeyDown:(BOOL)tapIfMissingKeyDown API_AVAILABLE(tvos(13.4)) {
++                       eventType:(FlutterKeyEventType)type
++                        physical:(uint64_t)physical
++                         logical:(uint64_t)logical API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+-    NSNumber* key = @(physical);
+-    BOOL hasKeyDown = [self.synthesizedPressedKeys containsObject:key];
+-    if (type == kFlutterKeyEventTypeUp) {
+-      if (self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
+-        [self stopSynthesizedRepeat];
+-      }
+-      if (!hasKeyDown && tapIfMissingKeyDown) {
+-        [self sendSynthesizedKeyEventOfType:kFlutterKeyEventTypeDown
+-                                   physical:physical
+-                                    logical:logical];
+-      }
++    if (type == kFlutterKeyEventTypeUp &&
++        self.synthesizedRepeatPhysicalKey.unsignedLongLongValue == physical) {
++      [self stopSynthesizedRepeat];
+     }
+ 
+-    BOOL sent = [self sendSynthesizedKeyEventOfType:type physical:physical logical:logical];
++    BOOL sent = [self sendRemoteKeyEventOfType:type physical:physical logical:logical];
+     if (sent && type == kFlutterKeyEventTypeDown && [self isRepeatablePressType:pressType]) {
+       [self startSynthesizedRepeatWithPhysical:physical logical:logical];
+     }
+-    return YES;
++    return sent;
+   }
+   return NO;
+ }
+ 
+-- (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
++- (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
+   if (@available(tvOS 13.4, *)) {
+-    if ([self shouldPassMenuPressToSystem:press]) {
+-      return NO;
+-    }
+-
+     uint64_t physical = 0;
+     uint64_t logical = 0;
+-    if (![self physicalLogicalForPressType:press.type physical:&physical logical:&logical]) {
+-      return NO;
++    if (![self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
++      return FlutterTvosPressRouteNotRemote;
+     }
+ 
++    NSNumber* key = @(physical);
++    BOOL engineOwned = [self.synthesizedPressedKeys containsObject:key];
++    BOOL systemOwned = [self.systemOwnedRemotePressKeys containsObject:key];
++
+     switch (press.phase) {
+       case UIPressPhaseBegan:
++        if (engineOwned) {
++          return FlutterTvosPressRouteEngine;
++        }
++        if (systemOwned) {
++          return FlutterTvosPressRouteSystem;
++        }
++        if ([self shouldPassMenuPressToSystem:press]) {
++          [self.systemOwnedRemotePressKeys addObject:key];
++          return FlutterTvosPressRouteSystem;
++        }
++        [self synthesizeRemotePressType:press.type
++                             eventType:kFlutterKeyEventTypeDown
++                              physical:physical
++                               logical:logical];
++        return FlutterTvosPressRouteEngine;
+       case UIPressPhaseChanged:
+       case UIPressPhaseStationary:
+-        return [self synthesizeRemotePressType:press.type
+-                                     eventType:kFlutterKeyEventTypeDown
+-                                      physical:physical
+-                                       logical:logical
+-                          tapIfMissingKeyDown:NO];
++        return systemOwned ? FlutterTvosPressRouteSystem : FlutterTvosPressRouteEngine;
+       case UIPressPhaseEnded:
+       case UIPressPhaseCancelled:
+-        return [self synthesizeRemotePressType:press.type
+-                                     eventType:kFlutterKeyEventTypeUp
+-                                      physical:physical
+-                                       logical:logical
+-                           tapIfMissingKeyDown:YES];
++        if (engineOwned) {
++          [self synthesizeRemotePressType:press.type
++                               eventType:kFlutterKeyEventTypeUp
++                                physical:physical
++                                 logical:logical];
++          return FlutterTvosPressRouteEngine;
++        }
++        if (systemOwned) {
++          dispatch_async(dispatch_get_main_queue(), ^{
++            [self.systemOwnedRemotePressKeys removeObject:key];
++          });
++          return FlutterTvosPressRouteSystem;
++        }
++        // A terminal phase without an engine-owned Begin is state repair only.
++        // Consume it without fabricating a new activation.
++        return FlutterTvosPressRouteEngine;
+     }
+   }
+-  return NO;
++  return FlutterTvosPressRouteNotRemote;
++}
++
++- (BOOL)tvosHandlePressFromUIEvent:(UIPress*)press API_AVAILABLE(tvos(13.4)) {
++  return [self tvosRoutePress:press] == FlutterTvosPressRouteEngine;
+ }
+ 
+ - (void)sendTap:(int)keyCode withType:(NSString*)keyMapType ofType:(NSString*)type {
+@@ -2438,33 +2405,22 @@ - (void)superPressesCancelled:(NSSet<UIPress*>*)presses withEvent:(UIPressesEven
+ // both places to capture keys both inside and outside of a text field, but have
+ // slightly different implementations.
+ //
+-// Note: on tvOS, Siri Remote presses are synthesized directly from UIEvent /
+-// UIPress.type in UIWindow.sendEvent above so HardwareKeyboard.instance
+-// receives Select/arrow/Menu/etc. These responder callbacks remain as a deduped
+-// fallback if UIKit also routes the press lifecycle to FlutterViewController.
++// On tvOS, every Siri Remote ingress delegates to tvosRoutePress:.
++// That router owns each physical press for its complete lifecycle, while these
++// responder callbacks remain a fallback when UIKit bypasses sendEvent: hooks.
+ 
+ - (void)pressesBegan:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+-#if defined(TARGET_OS_TV) && TARGET_OS_TV
+-    NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+-    for (UIPress* press in presses) {
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        continue;
+-      }
+-      if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeDown]) {
+-        [synthesizedPresses addObject:press];
+-      }
+-    }
+-#endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        [self superPressesCancelled:[NSSet setWithObject:press] withEvent:event];
++      FlutterTvosPressRoute route = [self tvosRoutePress:press];
++      if (route == FlutterTvosPressRouteEngine) {
+         continue;
+       }
+-      if ([synthesizedPresses containsObject:press]) {
++      if (route == FlutterTvosPressRouteSystem) {
++        [self superPressesBegan:[NSSet setWithObject:press] withEvent:event];
+         continue;
+       }
+ #endif
+@@ -2484,13 +2440,12 @@ - (void)pressesChanged:(NSSet<UIPress*>*)presses
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        [self superPressesChanged:[NSSet setWithObject:press] withEvent:event];
++      FlutterTvosPressRoute route = [self tvosRoutePress:press];
++      if (route == FlutterTvosPressRouteEngine) {
+         continue;
+       }
+-      uint64_t physical = 0;
+-      uint64_t logical = 0;
+-      if ([self remotePhysicalLogicalForPress:press physical:&physical logical:&logical]) {
++      if (route == FlutterTvosPressRouteSystem) {
++        [self superPressesChanged:[NSSet setWithObject:press] withEvent:event];
+         continue;
+       }
+ #endif
+@@ -2507,25 +2462,15 @@ - (void)pressesChanged:(NSSet<UIPress*>*)presses
+ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+            withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+-#if defined(TARGET_OS_TV) && TARGET_OS_TV
+-    NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+-    for (UIPress* press in presses) {
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        continue;
+-      }
+-      if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp]) {
+-        [synthesizedPresses addObject:press];
+-      }
+-    }
+-#endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        [self superPressesEnded:[NSSet setWithObject:press] withEvent:event];
++      FlutterTvosPressRoute route = [self tvosRoutePress:press];
++      if (route == FlutterTvosPressRouteEngine) {
+         continue;
+       }
+-      if ([synthesizedPresses containsObject:press]) {
++      if (route == FlutterTvosPressRouteSystem) {
++        [self superPressesEnded:[NSSet setWithObject:press] withEvent:event];
+         continue;
+       }
+ #endif
+@@ -2542,25 +2487,15 @@ - (void)pressesEnded:(NSSet<UIPress*>*)presses
+ - (void)pressesCancelled:(NSSet<UIPress*>*)presses
+                withEvent:(UIPressesEvent*)event API_AVAILABLE(ios(9.0), tvos(10.0)) {
+   if (@available(iOS 13.4, tvOS 13.4, *)) {
+-#if defined(TARGET_OS_TV) && TARGET_OS_TV
+-    NSMutableSet<UIPress*>* synthesizedPresses = [NSMutableSet set];
+-    for (UIPress* press in presses) {
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        continue;
+-      }
+-      if ([self maybeSynthesizeForPress:press eventType:kFlutterKeyEventTypeUp]) {
+-        [synthesizedPresses addObject:press];
+-      }
+-    }
+-#endif
+     __weak FlutterViewController* weakSelf = self;
+     for (UIPress* press in presses) {
+ #if defined(TARGET_OS_TV) && TARGET_OS_TV
+-      if ([self shouldPassMenuPressToSystem:press]) {
+-        [self superPressesBegan:[NSSet setWithObject:press] withEvent:event];
++      FlutterTvosPressRoute route = [self tvosRoutePress:press];
++      if (route == FlutterTvosPressRouteEngine) {
+         continue;
+       }
+-      if ([synthesizedPresses containsObject:press]) {
++      if (route == FlutterTvosPressRouteSystem) {
++        [self superPressesCancelled:[NSSet setWithObject:press] withEvent:event];
+         continue;
+       }
+ #endif
+diff --git a/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
+new file mode 100644
+index 00000000..8be464a7
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/darwin/ios/framework/Source/FlutterViewControllerTvosPressTest.mm
+@@ -0,0 +1,168 @@
++// Copyright 2013 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#import <OCMock/OCMock.h>
++#import <XCTest/XCTest.h>
++
++#import "flutter/shell/platform/darwin/ios/framework/Headers/FlutterViewController.h"
++#import "flutter/shell/platform/darwin/ios/framework/Source/FlutterEngine_Internal.h"
++
++FLUTTER_ASSERT_ARC
++
++#if defined(TARGET_OS_TV) && TARGET_OS_TV
++
++typedef NS_ENUM(NSUInteger, FlutterTvosPressRoute) {
++  FlutterTvosPressRouteNotRemote,
++  FlutterTvosPressRouteEngine,
++  FlutterTvosPressRouteSystem,
++};
++
++@interface FlutterViewController (TvosPressTests)
++@property(nonatomic, assign) BOOL menuPressPassthroughEnabled;
++- (BOOL)synthesizeRemotePressType:(UIPressType)pressType
++                        eventType:(FlutterKeyEventType)type
++                         physical:(uint64_t)physical
++                          logical:(uint64_t)logical API_AVAILABLE(tvos(13.4));
++- (FlutterTvosPressRoute)tvosRoutePress:(UIPress*)press API_AVAILABLE(tvos(13.4));
++@end
++
++@interface FlutterTvosPressEngineMock : FlutterEngine
++@property(nonatomic, strong) NSMutableArray<NSNumber*>* sentKeyEventTypes;
++@property(nonatomic, strong) NSMutableArray<NSNumber*>* sentKeyEventSynthesized;
++@end
++
++@implementation FlutterTvosPressEngineMock
++
++- (void)sendKeyEvent:(const FlutterKeyEvent&)event
++            callback:(nullable FlutterKeyEventCallback)callback
++            userData:(nullable void*)userData API_AVAILABLE(tvos(13.4)) {
++  if (!self.sentKeyEventTypes) {
++    self.sentKeyEventTypes = [NSMutableArray array];
++    self.sentKeyEventSynthesized = [NSMutableArray array];
++  }
++  [self.sentKeyEventTypes addObject:@(event.type)];
++  [self.sentKeyEventSynthesized addObject:@(event.synthesized)];
++  if (callback) {
++    callback(true, userData);
++  }
++}
++
++@end
++
++static UIPress* RemotePress(UIPressType type, UIPressPhase phase) API_AVAILABLE(tvos(13.4)) {
++  UIPress* press = OCMClassMock([UIPress class]);
++  OCMStub([press type]).andReturn(type);
++  OCMStub([press phase]).andReturn(phase);
++  return press;
++}
++
++@interface FlutterViewControllerTvosPressTest : XCTestCase
++@end
++
++@implementation FlutterViewControllerTvosPressTest
++
++- (void)testRemoteSelectLifecycleEmitsExactlyOneGenuineDownAndUp API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++  constexpr uint64_t kSelectPhysical = 0x00070077ULL;
++  constexpr uint64_t kSelectLogical = 0x10000050CULL;
++
++  XCTAssertFalse([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                 eventType:kFlutterKeyEventTypeUp
++                                                  physical:kSelectPhysical
++                                                   logical:kSelectLogical]);
++  XCTAssertTrue([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                eventType:kFlutterKeyEventTypeDown
++                                                 physical:kSelectPhysical
++                                                  logical:kSelectLogical]);
++  XCTAssertFalse([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                 eventType:kFlutterKeyEventTypeDown
++                                                  physical:kSelectPhysical
++                                                   logical:kSelectLogical]);
++  XCTAssertTrue([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                eventType:kFlutterKeyEventTypeUp
++                                                 physical:kSelectPhysical
++                                                  logical:kSelectLogical]);
++  XCTAssertFalse([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                 eventType:kFlutterKeyEventTypeUp
++                                                  physical:kSelectPhysical
++                                                   logical:kSelectLogical]);
++
++  XCTAssertEqualObjects(engine.sentKeyEventTypes,
++                        (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
++  XCTAssertEqualObjects(engine.sentKeyEventSynthesized, (@[ @NO, @NO ]));
++}
++
++- (void)testUnmatchedTerminalPhasesNeverFabricateSelectActivation API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteEngine);
++  XCTAssertEqual(
++      [viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseCancelled)],
++      FlutterTvosPressRouteEngine);
++  XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
++}
++
++- (void)testMenuPolicyChangeDoesNotCancelActiveSelect API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++  constexpr uint64_t kSelectPhysical = 0x00070077ULL;
++  constexpr uint64_t kSelectLogical = 0x10000050CULL;
++
++  XCTAssertTrue([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                eventType:kFlutterKeyEventTypeDown
++                                                 physical:kSelectPhysical
++                                                  logical:kSelectLogical]);
++  viewController.menuPressPassthroughEnabled = YES;
++  XCTAssertEqualObjects(engine.sentKeyEventTypes, (@[ @(kFlutterKeyEventTypeDown) ]));
++
++  XCTAssertTrue([viewController synthesizeRemotePressType:UIPressTypeSelect
++                                                eventType:kFlutterKeyEventTypeUp
++                                                 physical:kSelectPhysical
++                                                  logical:kSelectLogical]);
++  XCTAssertEqualObjects(engine.sentKeyEventTypes,
++                        (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
++}
++
++- (void)testMenuRoutingOwnerDoesNotChangeMidPress API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++  viewController.menuPressPassthroughEnabled = YES;
++
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeMenu, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteSystem);
++  viewController.menuPressPassthroughEnabled = NO;
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeMenu, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteSystem);
++  XCTAssertEqual(engine.sentKeyEventTypes.count, 0u);
++}
++
++- (void)testEngineRoutingOwnerDoesNotChangeMidPress API_AVAILABLE(tvos(13.4)) {
++  FlutterTvosPressEngineMock* engine = [[FlutterTvosPressEngineMock alloc] init];
++  FlutterViewController* viewController = [[FlutterViewController alloc] initWithEngine:engine
++                                                                                nibName:nil
++                                                                                 bundle:nil];
++
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseBegan)],
++                 FlutterTvosPressRouteEngine);
++  viewController.menuPressPassthroughEnabled = YES;
++  XCTAssertEqual([viewController tvosRoutePress:RemotePress(UIPressTypeSelect, UIPressPhaseEnded)],
++                 FlutterTvosPressRouteEngine);
++  XCTAssertEqualObjects(engine.sentKeyEventTypes,
++                        (@[ @(kFlutterKeyEventTypeDown), @(kFlutterKeyEventTypeUp) ]));
++}
++
++@end
++
++#endif
